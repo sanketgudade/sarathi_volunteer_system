@@ -1,0 +1,55 @@
+-- 1. TASKS (Core table)
+CREATE TABLE tasks (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    title VARCHAR(200) NOT NULL,
+    description TEXT,
+    volunteer_id INT,
+    admin_id INT,
+    location_name VARCHAR(200),
+    latitude DECIMAL(10, 8),
+    longitude DECIMAL(11, 8),
+    radius_km DECIMAL(5,2) DEFAULT 0.5, -- 500 meters
+    status ENUM('pending', 'in_progress', 'completed') DEFAULT 'pending',
+    deadline DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_volunteer (volunteer_id),
+    INDEX idx_status (status)
+);
+
+-- 2. ATTENDANCE (Simple version)
+CREATE TABLE attendance (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    task_id INT,
+    volunteer_id INT,
+    check_in_time DATETIME,
+    check_out_time DATETIME,
+    check_in_lat DECIMAL(10, 8),
+    check_in_lng DECIMAL(11, 8),
+    check_out_lat DECIMAL(10, 8),
+    check_out_lng DECIMAL(11, 8),
+    location_verified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (volunteer_id) REFERENCES volunteer_requests(id) ON DELETE CASCADE
+);
+
+-- 3. REPORTS (Basic)
+CREATE TABLE reports (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    task_id INT,
+    volunteer_id INT,
+    description TEXT,
+    photo_url VARCHAR(500),
+    status ENUM('submitted', 'approved', 'rejected') DEFAULT 'submitted',
+    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reviewed_by INT,
+    reviewed_at DATETIME,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (volunteer_id) REFERENCES volunteer_requests(id) ON DELETE CASCADE
+);
+
+-- 4. Add task columns to volunteer_requests if needed
+ALTER TABLE volunteer_requests 
+ADD COLUMN available BOOLEAN DEFAULT TRUE,
+ADD COLUMN total_tasks INT DEFAULT 0,
+ADD COLUMN completed_tasks INT DEFAULT 0;

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Workforce Management</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Bootstrap -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Boxicons -->
+  <link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+
+  <link rel="stylesheet" href="workforce.css">
+</head>
+<body>
+
+<div class="row">
+  <div class="col-12">
+    <div class="card h-100">
+      <div class="card-header">
+
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="fw-bold">Workforce Management</h4>
+    <button class="btn btn-primary btn-sm">
+      <i class="bx bx-user-plus"></i> Add Worker
+    </button>
+  </div>
+
+  <!-- Analytics Cards -->
+<div class="row g-3 mb-3">
+    <div class="col-md-3">
+      <div class="card shadow-sm">
+        <div class="card-body">
+        <h6>Total Workforce</h6>
+      <h3 id="totalWorkforce">120</h3>
+      <small class="text-muted">Registered staff</small>
+        </div>
+      </div>
+    </div>
+    
+  <!-- Total Zones -->
+  <div class="col-md-3">
+      <div class="card shadow-sm border-success">
+        <div class="card-body">
+      <h6>Total Zones</h6>
+      <h3 id="totalZones">5</h3>
+      <small class="text-info">Operational areas</small>
+
+        </div>
+      </div>
+    </div>
+  <!-- Complaints Raised -->
+  
+
+  <!-- New Workers Joined -->
+    <div class="col-md-3">
+      <div class="card shadow-sm border-danger">
+        <div class="card-body">
+           <h6>Complaints Raised</h6>
+      <h3 id="totalComplaints">8</h3>
+      <small class="text-warning">Pending / Resolved</small>
+        </div>
+      </div>
+    </div>
+
+
+  <!-- Workers Wanting to Leave -->
+     <div class="col-md-3">
+      <div class="card shadow-sm border-danger">
+        <div class="card-body">
+               <h6>New Workers</h6>
+      <h3 id="newWorkers">3</h3>
+      <small class="text-success">Joined this month</small>
+
+        </div>
+      </div>
+    </div>
+
+  <!-- Tasks Completed Today -->
+    <div class="col-md-3">
+      <div class="card shadow-sm border-danger">
+        <div class="card-body">
+                  <h6>Leaving Workers</h6>
+      <h3 id="leavingWorkers">2</h3>
+      <small class="text-danger">Requested resignation</small>
+
+
+        </div>
+      </div>
+    </div>
+ <div class="col-md-3">
+      <div class="card shadow-sm border-danger">
+        <div class="card-body">
+               <h6>Manpower Shortage</h6>
+      <h3 id="shortage">5</h3>
+      <small class="text-danger">Vacant / Unavailable</small>
+
+        </div>
+      </div>
+    </div>
+ <div class="col-md-3">
+      <div class="card shadow-sm border-danger">
+        <div class="card-body">
+                 <h6>Pending Approvals</h6>
+      <h3 id="pendingApprovals">4</h3>
+      <small class="text-info">Requests / Tasks</small>
+
+
+        </div>
+      </div>
+    </div>
+     <div class="col-md-3">
+      <div class="card shadow-sm border-danger">
+        <div class="card-body">
+                   <h6>Overtime Workers</h6>
+      <h3 id="overtimeWorkers">6</h3>
+      <small class="text-primary">Extra hours today</small>
+
+
+        </div>
+      </div>
+    </div>
+  <!-- Workforce Table -->
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h6 class="mb-0">Today's Workforce Status</h6>
+      <input type="text" class="form-control form-control-sm w-25" placeholder="Search worker...">
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Worker</th>
+            <th>Zone</th>
+            <th>Status</th>
+            <th>Attendance</th>
+            <th>Task Progress</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <tr>
+            <td>
+              <strong>Ravi Patil</strong><br>
+              <small class="text-muted">Field Executive</small>
+            </td>
+            <td>Zone A</td>
+            <td><span class="badge bg-success">Active</span></td>
+            <td>Checked In<br><small>09:12 AM</small></td>
+            <td>
+              <div class="progress" style="height:6px;">
+                <div class="progress-bar bg-success" style="width: 80%"></div>
+              </div>
+              <small>4 / 5 Tasks</small>
+            </td>
+            <td>
+              <button class="btn btn-sm btn-outline-primary">View</button>
+            </td>
+          </tr>
+
+          <tr>
+            <td>
+              <strong>Sunita Kale</strong><br>
+              <small class="text-muted">Supervisor</small>
+            </td>
+            <td>Zone B</td>
+            <td><span class="badge bg-warning text-dark">On Leave</span></td>
+            <td>—</td>
+            <td>
+              <div class="progress" style="height:6px;">
+                <div class="progress-bar bg-warning" style="width: 0%"></div>
+              </div>
+              <small>0 / 3 Tasks</small>
+            </td>
+            <td>
+              <button class="btn btn-sm btn-outline-secondary">Details</button>
+            </td>
+          </tr>
+
+          <tr>
+            <td>
+              <strong>Akash More</strong><br>
+              <small class="text-muted">Volunteer</small>
+            </td>
+            <td>Zone C</td>
+            <td><span class="badge bg-danger">Absent</span></td>
+            <td>No Check-in</td>
+            <td>
+              <div class="progress" style="height:6px;">
+                <div class="progress-bar bg-danger" style="width: 0%"></div>
+              </div>
+              <small>0 / 4 Tasks</small>
+            </td>
+            <td>
+              <button class="btn btn-sm btn-outline-danger">Follow Up</button>
+            </td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

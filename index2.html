@@ -1,0 +1,1021 @@
+<!doctype html>
+
+<html lang="en" class="layout-menu-fixed layout-compact" data-assets-path="../assets/"
+  data-template="vertical-menu-template-free">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+
+  <title>FieldMate</title>
+  <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+
+
+  <link rel="stylesheet" href="../css/core.css" />
+  <link rel="stylesheet" href="../css/style.css" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+</head>
+
+<body>
+
+  <!-- Layout wrapper -->
+  <div class="layout-wrapper layout-content-navbar">
+    <div class="layout-container">
+      <!-- Menu -->
+
+      <aside id="layout-menu" class="layout-menu menu-vertical menu bg-menu-theme">
+        <div class="app-brand demo">
+          <a href="index.html" class="app-brand-link d-flex align-items-center">
+
+            <!-- Logo Image -->
+            <span class="app-brand-logo">
+              <img src="../assets/img/logo.png" alt="FieldMate" style="height: 36px; width: auto;" />
+            </span>
+
+            <!-- Brand Text -->
+            <span class="app-brand-text demo menu-text fw-bold ms-2">
+              FieldMate
+            </span>
+          </a>
+
+          <!-- Sidebar Toggle -->
+          <a href="javascript:void(0);" class="layout-menu-toggle menu-link text-large ms-auto">
+            <i class="bx bx-chevron-left d-block d-xl-none align-middle"></i>
+          </a>
+        </div>
+
+
+        <div class="menu-divider mt-0"></div>
+
+        <div class="menu-inner-shadow"></div>
+
+        <ul class="menu-inner py-1">
+          <!-- Dashboards -->
+          <li class="menu-item active open">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bx-home-smile"></i>
+              <div class="text-truncate" data-i18n="Dashboards">Dashboards</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item ">
+                <a href="index.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Analytics">Analytics</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="#" class="menu-link" onclick="loadPage('live-map.html')">
+                  <div class="text-truncate" data-i18n="LiveMap">Live Map</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="#" class="menu-link" onclick="loadPage('track-worker.html')">
+                  <div class="text-truncate" data-i18n="TrackWorker">Track Worker</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="#" class="menu-link" onclick="loadPage('workforce.html')">
+                  <div class="text-truncate" data-i18n="Workforce">Workforce</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="#" class="menu-link" onclick="loadPage('task-planning.html')">
+                  <div class="text-truncate" data-i18n="Reports">Task Planning</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+          <li class="menu-header small text-uppercase">
+            <span class="menu-header-text">Artificial Intelligence</span>
+          </li>
+
+
+
+          <li class="menu-item">
+            <a href="#" class="menu-link" onclick="loadPage('aicalendar.html')">
+              <i class="menu-icon bx bx-task"></i>
+              <div class="text-truncate">AI Calendar</div>
+            </a>
+          </li>
+
+          <li class="menu-item">
+            <a href="#" class="menu-link" onclick="loadPage('ai-reporting-analysis.html')">
+              <i class="menu-icon bx bx-bar-chart-alt-2"></i>
+              <div class="text-truncate">AI Reports</div>
+            </a>
+          </li>
+
+
+
+
+
+
+          <li class="menu-header small text-uppercase">
+            <span class="menu-header-text">Settings</span>
+          </li>
+
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bx-dock-top"></i>
+              <div class="text-truncate" data-i18n="Account Settings">Account Settings</div>
+            </a>
+
+            <!-- Submenu -->
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="settings-account.html" class="menu-link">
+                  <div class="text-truncate">Account</div>
+                </a>
+              </li>
+
+
+            </ul>
+          </li>
+
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bx-lock-open-alt"></i>
+              <div class="text-truncate" data-i18n="Authentications">Authentications</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="auth-login-basic.html" class="menu-link" target="_blank">
+                  <div class="text-truncate" data-i18n="Basic">Login</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="auth-register-basic.html" class="menu-link" target="_blank">
+                  <div class="text-truncate" data-i18n="Basic">Register</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="auth-forgot-password-basic.html" class="menu-link" target="_blank">
+                  <div class="text-truncate" data-i18n="Basic">Forgot Password</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+
+
+        </ul>
+      </aside>
+      <!-- / Menu -->
+
+      <!-- Layout container -->
+      <div class="layout-page">
+        <!-- Navbar -->
+
+        <nav
+          class="layout-navbar container-xxl navbar-detached navbar navbar-expand-xl align-items-center bg-navbar-theme"
+          id="layout-navbar">
+
+          <div class="layout-menu-toggle navbar-nav align-items-xl-center me-4 me-xl-0 d-xl-none">
+            <a class="nav-item nav-link px-0 me-xl-6" href="javascript:void(0)">
+              <i class="icon-base bx bx-menu icon-md"></i>
+            </a>
+          </div>
+
+          <div class="navbar-nav-right d-flex align-items-center justify-content-end" id="navbar-collapse">
+            <!-- Search -->
+            <div class="navbar-nav align-items-center me-auto">
+              <div class="nav-item d-flex align-items-center">
+                <span class="w-px-22 h-px-22"><i class="icon-base bx bx-search icon-md"></i></span>
+                <input type="text" class="form-control border-0 shadow-none ps-1 ps-sm-2 d-md-block d-none"
+                  placeholder="Search..." aria-label="Search..." />
+              </div>
+            </div>
+            <!-- /Search -->
+
+            <ul class="navbar-nav flex-row align-items-center ms-md-auto">
+
+            </ul>
+          </div>
+        </nav>
+
+        <div class="content-wrapper">
+          <div id="mainContent" class="container-xxl flex-grow-1 container-p-y">
+            <div id="dashboardContent" class="row">
+
+              <!-- Content -->
+              <div class="container-xxl flex-grow-1 container-p-y">
+                <div class="row">
+                  <div class="col-xxl-8 mb-6 order-0">
+                    <div class="card">
+                      <div class="d-flex align-items-start row">
+                        <!-- Left Content -->
+                        <div class="col-sm-7">
+                          <div class="card-body">
+                            <h5 class="card-title text-primary mb-3">
+                              Welcome Back, Admin 👋
+                            </h5>
+
+                            <p class="mb-6">
+                              All systems are running smoothly today.<br />
+                              Field operations, workers, and service zones are actively monitored in real time.
+                            </p>
+
+                            <div class="d-flex gap-3 flex-wrap">
+                              <a href="javascript:;" class="btn btn-sm btn-primary">
+                                View Live Map
+                              </a>
+                              <a href="javascript:;" class="btn btn-sm btn-outline-primary">
+                                Manage Operations
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- Right Illustration -->
+                        <div class="col-sm-5 text-center text-sm-left">
+                          <div class="card-body pb-0 px-0 px-md-6">
+                            <img src="../assets/img/illustrations/man-with-laptop.png" height="175"
+                              alt="Admin Dashboard Illustration" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xxl-4 col-lg-12 col-md-4 order-1">
+                    <div class="row">
+                      <div class="col-lg-6 col-md-12 col-6 mb-6">
+                        <div class="card h-100">
+                          <div class="card-body">
+                            <div class="card-title d-flex align-items-start justify-content-between mb-4">
+                              <div class="avatar flex-shrink-0">
+                                <span class="avatar-initial rounded bg-label-success">
+                                  <i class="icon-base bx bx-user-check"></i>
+                                </span>
+                              </div>
+                              <div class="dropdown">
+                                <button class="btn p-0" type="button" id="activeWorkersToday" data-bs-toggle="dropdown"
+                                  aria-haspopup="true" aria-expanded="false">
+                                  <i class="icon-base bx bx-dots-vertical-rounded text-body-secondary"></i>
+                                </button>
+                                <div class="dropdown-menu dropdown-menu-end" aria-labelledby="activeWorkersToday">
+                                  <a class="dropdown-item" href="javascript:void(0);">View Details</a>
+                                  <a class="dropdown-item" href="javascript:void(0);">Refresh</a>
+                                </div>
+                              </div>
+                            </div>
+
+                            <p class="mb-1">Workers Active Today</p>
+                            <h4 id="workersActiveToday" class="card-title mb-3">Loading...</h4>
+
+                            <small class="text-success fw-medium">
+                              <i class="icon-base bx bx-up-arrow-alt"></i>
+                              +12% vs Yesterday
+                            </small>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="col-lg-6 col-md-12 col-6 mb-6">
+                        <div class="card h-100">
+                          <div class="card-body">
+                            <div class="card-title d-flex align-items-start justify-content-between mb-4">
+                              <div class="avatar flex-shrink-0">
+                                <span class="avatar-initial rounded bg-label-primary">
+                                  <i class="icon-base bx bx-briefcase-alt"></i>
+                                </span>
+                              </div>
+                              <div class="dropdown">
+                                <button class="btn p-0" type="button" id="totalWorkToday" data-bs-toggle="dropdown"
+                                  aria-haspopup="true" aria-expanded="false">
+                                  <i class="icon-base bx bx-dots-vertical-rounded text-body-secondary"></i>
+                                </button>
+                                <div class="dropdown-menu dropdown-menu-end" aria-labelledby="totalWorkToday">
+                                  <a class="dropdown-item" href="javascript:void(0);">View Details</a>
+                                  <a class="dropdown-item" href="javascript:void(0);">Refresh</a>
+                                </div>
+                              </div>
+                            </div>
+
+                            <p class="mb-1">Total Work Done Today</p>
+                            <h4 id="totalWorkDoneToday" class="card-title mb-3">Loading...</h4>
+
+                            <small class="text-success fw-medium">
+                              <i class="icon-base bx bx-up-arrow-alt"></i>
+                              +18% vs Yesterday
+                            </small>
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                  <!-- Live Field Operations Map -->
+                  <div class="col-12 col-xxl-8 order-2 order-md-3 order-xxl-2 mb-6">
+                    <div class="card h-100">
+                      <div class="card-header d-flex align-items-center justify-content-between">
+                        <div class="card-title mb-0">
+                          <h5 class="m-0 me-2">Live Field Operations Map</h5>
+                          <small class="text-muted">Real-time staff & zone activity</small>
+                        </div>
+                        <div class="dropdown">
+                          <button class="btn p-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="icon-base bx bx-dots-vertical-rounded icon-lg text-body-secondary"></i>
+                          </button>
+                          <div class="dropdown-menu dropdown-menu-end">
+                            <a class="dropdown-item" href="#">Show Active Staff</a>
+                            <a class="dropdown-item" href="#">Show All Zones</a>
+                            <a class="dropdown-item" href="#">Refresh Map</a>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="card-body p-0">
+                        <div id="liveMap" style="height: 420px; width: 100%;"></div>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- / Live Field Operations Map -->
+
+                  <!--/ Total Revenue -->
+                  <div class="col-12 col-md-8 col-lg-12 col-xxl-4 order-3 order-md-2 profile-report">
+                    <div class="row">
+                      <div class="col-6 mb-6 workers-leave">
+                        <div class="card h-100">
+                          <div class="card-body">
+                            <div class="card-title d-flex align-items-start justify-content-between mb-4">
+                              <div class="avatar flex-shrink-0">
+                                <span class="avatar-initial rounded bg-label-warning">
+                                  <i class="icon-base bx bx-user-minus"></i>
+                                </span>
+                              </div>
+                              <div class="dropdown">
+                                <button class="btn p-0" type="button" id="cardLeaveToday" data-bs-toggle="dropdown"
+                                  aria-haspopup="true" aria-expanded="false">
+                                  <i class="icon-base bx bx-dots-vertical-rounded text-body-secondary"></i>
+                                </button>
+                                <div class="dropdown-menu dropdown-menu-end" aria-labelledby="cardLeaveToday">
+                                  <a class="dropdown-item" href="javascript:void(0);">View Leave List</a>
+                                  <a class="dropdown-item" href="javascript:void(0);">Refresh</a>
+                                </div>
+                              </div>
+                            </div>
+
+                            <p class="mb-1">Workers on Leave Today</p>
+                            <h4 id="workersOnLeave" class="card-title mb-3">Loading...</h4>
+
+                            <small class="text-warning fw-medium">
+                              <i class="icon-base bx bx-info-circle"></i>
+                              Scheduled & Emergency Leave
+                            </small>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="col-6 mb-6 leave-impact">
+                        <div class="card h-100">
+                          <div class="card-body">
+                            <div class="card-title d-flex align-items-start justify-content-between mb-4">
+                              <div class="avatar flex-shrink-0">
+                                <span class="avatar-initial rounded bg-label-danger">
+                                  <i class="icon-base bx bx-trending-down"></i>
+                                </span>
+                              </div>
+                              <div class="dropdown">
+                                <button class="btn p-0" type="button" id="cardLeaveImpact" data-bs-toggle="dropdown"
+                                  aria-haspopup="true" aria-expanded="false">
+                                  <i class="icon-base bx bx-dots-vertical-rounded text-body-secondary"></i>
+                                </button>
+                                <div class="dropdown-menu dropdown-menu-end" aria-labelledby="cardLeaveImpact">
+                                  <a class="dropdown-item" href="javascript:void(0);">View Affected Zones</a>
+                                  <a class="dropdown-item" href="javascript:void(0);">Reassign Workers</a>
+                                </div>
+                              </div>
+                            </div>
+
+                            <p class="mb-1">Operational Impact</p>
+                            <h4 id="operationalImpactZones" class="card-title mb-3">Loading...</h4>
+
+                            <small class="text-danger fw-medium">
+                              <i class="icon-base bx bx-down-arrow-alt"></i>
+                              Delayed Collection Risk
+                            </small>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="col-12 mb-6 complaints-report">
+                        <div class="card h-100">
+                          <div class="card-body">
+                            <div
+                              class="d-flex justify-content-between align-items-center flex-sm-row flex-column gap-10 flex-wrap">
+
+                              <!-- Left Content -->
+                              <div class="d-flex flex-sm-column flex-row align-items-start justify-content-between">
+                                <div class="card-title mb-6">
+                                  <h5 class="text-nowrap mb-1">Complaints Raised</h5>
+                                  <span class="badge bg-label-danger">TODAY</span>
+                                </div>
+
+                                <div class="mt-sm-auto">
+                                  <span class="text-danger text-nowrap fw-medium">
+                                    <i class="icon-base bx bx-up-arrow-alt"></i> 18.5%
+                                  </span>
+                                  <h4 id="complaintsToday" class="card-title mb-3">Loading...</h4>
+                                  <small class="text-muted">Across all service zones</small>
+                                </div>
+                              </div>
+
+                              <!-- Chart Area -->
+                              <div id="complaintReportChart"></div>
+
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                </div>
+                <div class="row">
+                  <!-- Order Statistics -->
+                  <div class="col-md-6 col-lg-4 col-xl-4 order-0 mb-6">
+                    <div class="card h-100">
+                      <div class="card-header d-flex justify-content-between">
+                        <div class="card-title mb-0">
+                          <h5 class="mb-1 me-2">Field Operations Overview</h5>
+                          <p class="card-subtitle">Real-time Staff & Project Insights</p>
+                        </div>
+                        <div class="dropdown">
+                          <button class="btn text-body-secondary p-0" type="button" id="operationsOverviewDropdown"
+                            data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            <i class="icon-base bx bx-dots-vertical-rounded icon-lg"></i>
+                          </button>
+                          <div class="dropdown-menu dropdown-menu-end" aria-labelledby="operationsOverviewDropdown">
+                            <a class="dropdown-item" href="javascript:void(0);">Today</a>
+                            <a class="dropdown-item" href="javascript:void(0);">This Week</a>
+                            <a class="dropdown-item" href="javascript:void(0);">Export Report</a>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="card-body">
+                        <!-- Main KPI -->
+                        <div class="d-flex justify-content-between align-items-center mb-6">
+                          <div class="d-flex flex-column align-items-center gap-1">
+                            <h3 class="mb-1" id="activeFieldStaff">Loading..</h3>
+                            <small>Active Field Staff</small>
+                          </div>
+                          <div id="operationsOverviewChart"></div>
+                        </div>
+
+                        <!-- Breakdown -->
+                        <ul class="p-0 m-0">
+                          <!-- Attendance -->
+                          <li class="d-flex align-items-center mb-5">
+                            <div class="avatar flex-shrink-0 me-3">
+                              <span class="avatar-initial rounded bg-label-success">
+                                <i class="icon-base bx bx-map-pin"></i>
+                              </span>
+                            </div>
+                            <div class="d-flex w-100 flex-wrap align-items-center justify-content-between gap-2">
+                              <div class="me-2">
+                                <h6 class="mb-0">Attendance Tracked</h6>
+                                <small>GPS-based Check-ins</small>
+                              </div>
+                              <div class="user-progress">
+                                <h6 class="mb-0" id="attendanceTracked">Loading..</h6>
+                              </div>
+                            </div>
+                          </li>
+
+                          <!-- Tasks -->
+                          <li class="d-flex align-items-center mb-5">
+                            <div class="avatar flex-shrink-0 me-3">
+                              <span class="avatar-initial rounded bg-label-primary">
+                                <i class="icon-base bx bx-task"></i>
+                              </span>
+                            </div>
+                            <div class="d-flex w-100 flex-wrap align-items-center justify-content-between gap-2">
+                              <div class="me-2">
+                                <h6 class="mb-0">Tasks Assigned</h6>
+                                <small>Planned vs Completed</small>
+                              </div>
+                              <div class="user-progress">
+                                <h6 class="mb-0" id="tasksAssigned">Loading..</h6>
+                              </div>
+                            </div>
+                          </li>
+
+                          <!-- Leaves -->
+                          <li class="d-flex align-items-center mb-5">
+                            <div class="avatar flex-shrink-0 me-3">
+                              <span class="avatar-initial rounded bg-label-warning">
+                                <i class="icon-base bx bx-calendar-minus"></i>
+                              </span>
+                            </div>
+                            <div class="d-flex w-100 flex-wrap align-items-center justify-content-between gap-2">
+                              <div class="me-2">
+                                <h6 class="mb-0">Leave Requests</h6>
+                                <small>Pending Approvals</small>
+                              </div>
+                              <div class="user-progress">
+                                <h6 class="mb-0" id="leaveRequests">Loading..</h6>
+                              </div>
+                            </div>
+                          </li>
+
+                          <!-- Reports -->
+                          <li class="d-flex align-items-center">
+                            <div class="avatar flex-shrink-0 me-3">
+                              <span class="avatar-initial rounded bg-label-info">
+                                <i class="icon-base bx bx-bar-chart-alt-2"></i>
+                              </span>
+                            </div>
+                            <div class="d-flex w-100 flex-wrap align-items-center justify-content-between gap-2">
+                              <div class="me-2">
+                                <h6 class="mb-0">Daily Reports Submitted</h6>
+                                <small>Work Logs & Activity Updates</small>
+                              </div>
+                              <div class="user-progress">
+                                <h6 class="mb-0" id="dailyReports">Loading..</h6>
+                              </div>
+                            </div>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+
+                  <!--/ Order Statistics -->
+
+                  <!-- Staff Performance Overview -->
+                  <div class="col-md-6 col-lg-4 order-1 mb-6">
+                    <div class="card h-100">
+                      <div class="card-header nav-align-top">
+                        <ul class="nav nav-pills flex-wrap row-gap-2" role="tablist">
+                          <li class="nav-item">
+                            <button type="button" class="nav-link active" role="tab" data-bs-toggle="tab"
+                              data-bs-target="#tab-attendance" aria-controls="tab-attendance" aria-selected="true">
+                              Notifications
+                            </button>
+                          </li>
+                          <li class="nav-item">
+                            <button type="button" class="nav-link" role="tab" data-bs-toggle="tab"
+                              data-bs-target="#tab-tasks" aria-controls="tab-tasks">
+                              Tasks
+                            </button>
+                          </li>
+                          <li class="nav-item">
+                            <button type="button" class="nav-link" role="tab" data-bs-toggle="tab"
+                              data-bs-target="#tab-reports" aria-controls="tab-reports">
+                              Reports
+                            </button>
+                          </li>
+                        </ul>
+                      </div>
+
+                      <div class="card-body">
+                        <div class="tab-content p-0">
+
+                          <!-- Attendance Tab -->
+                          <div class="tab-pane fade show active" id="tab-attendance" role="tabpanel">
+                            <div class="d-flex mb-6">
+                              <div class="avatar flex-shrink-0 me-3">
+                                <span class="avatar-initial rounded bg-label-success">
+                                  <i class="icon-base bx bx-map-pin"></i>
+                                </span>
+                              </div>
+                              <div>
+                                <p class="mb-0">Attendance Compliance</p>
+                                <div class="d-flex align-items-center">
+                                  <h6 class="mb-0 me-1">94%</h6>
+                                  <small class="text-success fw-medium">
+                                    <i class="icon-base bx bx-chevron-up icon-lg"></i>
+                                    +6%
+                                  </small>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div id="attendanceChart"></div>
+
+                            <div class="d-flex align-items-center justify-content-center mt-6 gap-3">
+                              <div class="flex-shrink-0">
+                                <div id="attendanceWeekly"></div>
+                              </div>
+                              <div>
+                                <h6 class="mb-0">This Week</h6>
+                                <small>GPS-based check-ins recorded</small>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- Tasks Tab -->
+                          <div class="tab-pane fade" id="tab-tasks" role="tabpanel">
+                            <div class="d-flex mb-6">
+                              <div class="avatar flex-shrink-0 me-3">
+                                <span class="avatar-initial rounded bg-label-primary">
+                                  <i class="icon-base bx bx-task"></i>
+                                </span>
+                              </div>
+                              <div>
+                                <p class="mb-0">Task Completion Rate</p>
+                                <div class="d-flex align-items-center">
+                                  <h6 class="mb-0 me-1">81%</h6>
+                                  <small class="text-success fw-medium">
+                                    <i class="icon-base bx bx-chevron-up icon-lg"></i>
+                                    +9%
+                                  </small>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div id="taskChart"></div>
+
+                            <div class="d-flex align-items-center justify-content-center mt-6 gap-3">
+                              <div class="flex-shrink-0">
+                                <div id="taskWeekly"></div>
+                              </div>
+                              <div>
+                                <h6 class="mb-0">Tasks This Week</h6>
+                                <small>Planned vs completed activities</small>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- Reports Tab -->
+                          <div class="tab-pane fade" id="tab-reports" role="tabpanel">
+                            <div class="d-flex mb-6">
+                              <div class="avatar flex-shrink-0 me-3">
+                                <span class="avatar-initial rounded bg-label-info">
+                                  <i class="icon-base bx bx-file"></i>
+                                </span>
+                              </div>
+                              <div>
+                                <p class="mb-0">Daily Report Submission</p>
+                                <div class="d-flex align-items-center">
+                                  <h6 class="mb-0 me-1">88%</h6>
+                                  <small class="text-warning fw-medium">
+                                    <i class="icon-base bx bx-chevron-down icon-lg"></i>
+                                    -3%
+                                  </small>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div id="reportChart"></div>
+
+                            <div class="d-flex align-items-center justify-content-center mt-6 gap-3">
+                              <div class="flex-shrink-0">
+                                <div id="reportWeekly"></div>
+                              </div>
+                              <div>
+                                <h6 class="mb-0">Reports This Week</h6>
+                                <small>Daily field activity logs</small>
+                              </div>
+                            </div>
+                          </div>
+
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <!--/ Staff Performance Overview -->
+
+                  <div class="col-md-6 col-lg-4 order-2 mb-6">
+                    <div class="card h-100">
+                      <div class="card-header d-flex align-items-center justify-content-between">
+                        <h5 class="card-title m-0 me-2">Recent Activities</h5>
+                        <div class="dropdown">
+                          <button class="btn text-body-secondary p-0" type="button" id="recentActivityMenu"
+                            data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            <i class="icon-base bx bx-dots-vertical-rounded icon-lg"></i>
+                          </button>
+                          <div class="dropdown-menu dropdown-menu-end" aria-labelledby="recentActivityMenu">
+                            <a class="dropdown-item" href="javascript:void(0);">Today</a>
+                            <a class="dropdown-item" href="javascript:void(0);">This Week</a>
+                            <a class="dropdown-item" href="javascript:void(0);">This Month</a>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="card-body pt-4">
+                        <ul class="p-0 m-0" id="recentActivities">
+                          <!-- Recent activities will be injected here by JS -->
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+            </div>
+
+
+
+
+            <!-- Footer -->
+            <footer class="content-footer footer bg-footer-theme">
+              <div class="container-xxl">
+                <div
+                  class="footer-container d-flex align-items-center justify-content-between py-4 flex-md-row flex-column">
+                  <div class="mb-2 mb-md-0">
+                    ©
+                    <script>
+                      document.write(new Date().getFullYear());
+                    </script>
+                    , Made with ❤️ by
+                    <p>MarathaMinds</p>
+                  </div>
+                </div>
+              </div>
+            </footer>
+            <!-- / Footer -->
+
+
+            <script>
+              let liveMapInstance = null;
+
+              function initLiveMap() {
+                // Prevent duplicate initialization
+                if (liveMapInstance) {
+                  setTimeout(() => liveMapInstance.invalidateSize(), 200);
+                  return;
+                }
+
+                liveMapInstance = L.map('liveMapInner').setView([18.5204, 73.8567], 12);
+
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                  attribution: '&copy; OpenStreetMap contributors'
+                }).addTo(liveMapInstance);
+
+                const zones = [
+                  { name: "Zone A", center: [18.525, 73.85], color: "#2563eb" },
+                  { name: "Zone B", center: [18.51, 73.86], color: "#16a34a" },
+                  { name: "Zone C", center: [18.54, 73.88], color: "#dc2626" }
+                ];
+
+                zones.forEach(z => {
+                  L.circle(z.center, {
+                    radius: 1200,
+                    color: z.color,
+                    fillColor: z.color,
+                    fillOpacity: 0.25
+                  }).addTo(liveMapInstance);
+
+                  L.marker(z.center).addTo(liveMapInstance).bindPopup(z.name);
+                });
+
+                // 🔑 CRITICAL FIX
+                setTimeout(() => liveMapInstance.invalidateSize(), 200);
+              }
+            </script>
+            <script>
+              function loadPage(page) {
+                const content = document.getElementById('mainContent');
+                if (page === 'live-map.html') {
+                  setTimeout(() => {
+                    initLiveMap();
+                  }, 150);
+                }
+
+                fetch(page)
+                  .then(response => {
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    return response.text();
+                  })
+                  .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    content.innerHTML = doc.body.innerHTML;
+                  })
+                  .catch(error => {
+                    content.innerHTML = `<div class="alert alert-danger">Failed to load page: ${error}</div>`;
+                  });
+              }
+
+            </script>
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+
+
+
+            <script>
+              const map = L.map('liveMap').setView([18.5204, 73.8567], 12); // Pune coordinates
+
+              L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+              }).addTo(map);
+
+              // Example zones
+              const zones = [
+                { name: "Zone A", coords: [18.525, 73.85] },
+                { name: "Zone B", coords: [18.51, 73.86] },
+              ];
+
+              zones.forEach(zone => {
+                L.marker(zone.coords).addTo(map)
+                  .bindPopup(zone.name)
+                  .openPopup();
+              });
+            </script>
+
+            <script>
+              document.querySelectorAll('.menu-toggle').forEach(toggle => {
+                toggle.addEventListener('click', function () {
+                  const parent = this.parentElement;
+                  parent.classList.toggle('open');
+                });
+              });
+            </script>
+            <script>
+              function navigate(page) {
+                const content = document.getElementById('page-content');
+
+                // Loader
+                content.innerHTML = `
+      <div class="d-flex justify-content-center align-items-center" style="height:60vh">
+        <div class="spinner-border text-primary"></div>
+      </div>
+    `;
+
+                fetch(page)
+                  .then(res => {
+                    if (!res.ok) throw new Error("Page not found");
+                    return res.text();
+                  })
+                  .then(html => {
+                    content.innerHTML = html;
+                    history.pushState({ page }, "", "#" + page);
+                    setActiveMenu(page);
+                    if (page.includes('live-map')) {
+                      setTimeout(() => {
+                        initLiveMap();
+                      }, 200);
+                    }
+                  })
+                  .catch(() => {
+                    content.innerHTML = `
+          <div class="alert alert-danger m-4">
+            Failed to load page
+          </div>
+        `;
+                  });
+              }
+
+              function setActiveMenu(page) {
+                document.querySelectorAll('.menu-item').forEach(item => {
+                  item.classList.remove('active');
+                });
+
+                document.querySelectorAll('.menu-link').forEach(link => {
+                  if (link.getAttribute('onclick')?.includes(page)) {
+                    link.closest('.menu-item').classList.add('active');
+                  }
+                });
+              }
+
+              // Back / Forward support
+              window.onpopstate = function (e) {
+                if (e.state?.page) {
+                  navigate(e.state.page);
+                }
+              };
+            </script>
+
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+            <script>
+              let liveMap = null;
+
+              function openLiveMap() {
+                fetch('live-map.html')
+                  .then(res => res.text())
+                  .then(html => {
+                    document.getElementById('page-content').innerHTML = html;
+
+                    // Wait until DOM is updated
+                    setTimeout(() => {
+                      initLiveMap();
+                    }, 150);
+                  });
+              }
+
+              function initLiveMap() {
+                const container = document.getElementById('liveMapInner');
+                if (!container) {
+                  console.error('liveMapInner not found');
+                  return;
+                }
+
+                // Prevent duplicate map creation
+                if (liveMap) {
+                  liveMap.invalidateSize();
+                  return;
+                }
+
+                liveMap = L.map(container).setView([18.5204, 73.8567], 12);
+
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                  attribution: '&copy; OpenStreetMap contributors'
+                }).addTo(liveMap);
+
+                // Force resize
+                setTimeout(() => liveMap.invalidateSize(), 200);
+              }
+            </script>
+
+
+
+            <script>
+              async function loadDashboardData() {
+                try {
+                  const response = await fetch('http://localhost:3000/api/dashboard-stats');
+                  if (!response.ok) throw new Error('Network response was not ok');
+
+                  const data = await response.json();
+
+                  // --- Dashboard Cards ---
+                  document.querySelector('#workersActiveToday').textContent = data.workersActiveToday;
+                  document.querySelector('#totalWorkDoneToday').textContent = data.totalWorkDoneToday;
+                  document.querySelector('#workersOnLeave').textContent = data.workersOnLeave;
+                  document.querySelector('#operationalImpactZones').textContent = data.operationalImpactZones;
+                  document.querySelector('#complaintsToday').textContent = data.complaintsToday;
+
+                  // --- Field Operations Overview ---
+                  document.querySelector('#activeFieldStaff').textContent = data.workersActiveToday;
+                  document.querySelector('#attendanceTracked').textContent = data.attendanceTracked || '92%';
+                  document.querySelector('#tasksAssigned').textContent = data.tasksAssigned || data.totalWorkDoneToday;
+                  document.querySelector('#leaveRequests').textContent = data.workersOnLeave;
+                  document.querySelector('#dailyReports').textContent = data.dailyReports || '109';
+
+                  // --- Recent Activities ---
+                  const activitiesContainer = document.querySelector('#recentActivities');
+activitiesContainer.innerHTML = '';
+
+                  data.recentActivities.forEach(act => {
+                    let iconClass = 'bx bx-info-circle';
+                    let badge = '';
+                    let timeOrRequests = '';
+
+                    switch (act.type) {
+                      case 'Pickup Completed':
+                        iconClass = 'bx bx-check-circle';
+                        badge = `<span class="badge bg-label-success">${act.status}</span>`;
+                        timeOrRequests = `${act.zone} – ${act.requests} Requests`;
+                        break;
+                      case 'Pickup In Progress':
+                        iconClass = 'bx bx-time';
+                        badge = `<span class="badge bg-label-warning">${act.status}</span>`;
+                        timeOrRequests = `${act.zone} – ${act.requests} Requests`;
+                        break;
+                      case 'New User Registered':
+                        iconClass = 'bx bx-user-plus';
+                        timeOrRequests = act.zone;
+                        badge = `<span class="text-muted small">${act.time}</span>`;
+                        break;
+                      case 'Zone Added':
+                        iconClass = 'bx bx-map';
+                        timeOrRequests = `New Zone: ${act.zone}`;
+                        badge = `<span class="text-muted small">${act.time}</span>`;
+                        break;
+                      case 'Pickup Failed':
+                        iconClass = 'bx bx-error-circle';
+                        timeOrRequests = `${act.zone} – ${act.reason}`;
+                        badge = `<span class="badge bg-label-danger">${act.status}</span>`;
+                        break;
+                    }
+
+                    const li = document.createElement('li');
+                    li.className = 'd-flex align-items-center mb-6';
+                    li.innerHTML = `
+          <div class="avatar flex-shrink-0 me-3 bg-label-primary rounded">
+            <i class="${iconClass} icon-lg"></i>
+          </div>
+          <div class="d-flex w-100 flex-wrap align-items-center justify-content-between gap-2">
+            <div class="me-2">
+              <small class="d-block text-muted">${act.type}</small>
+              <h6 class="fw-normal mb-0">${timeOrRequests}</h6>
+            </div>
+            ${badge}
+          </div>
+        `;
+                    activitiesContainer.appendChild(li);
+                  });
+
+                } catch (err) {
+                  console.error('Failed to load dashboard data from server', err);
+                  const errorEl = document.querySelector('#dashboardError');
+                  if (errorEl) errorEl.textContent = 'Failed to load dashboard data from server';
+                }
+              }
+
+              // Only call this once after DOM loads
+              document.addEventListener('DOMContentLoaded', loadDashboardData);
+            </script>
+
+
+
+</body>
+
+</html>
