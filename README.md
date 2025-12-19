@@ -66,6 +66,22 @@ AJAX – Asynchronous client-server communication
 
 PHP Sessions – Authentication and authorization
 
+## Running the Project Locally
+
+To run this PHP + HTML project on your local machine, follow these steps:
+
+### Prerequisites
+- PHP installed ([download here](https://www.php.net/downloads))
+- Web browser (Chrome, Firefox, etc.)
+
+### Steps
+
+1. **Clone the repository:**
+```bash
+git clone https://github.com/your-username/your-repo.git
+cd your-repo
+php -S localhost:8000
+http://localhost:8000
 
 
 
