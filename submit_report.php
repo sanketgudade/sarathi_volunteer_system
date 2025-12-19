@@ -3,133 +3,110 @@ session_start();
 require_once 'config/config.php';
 
 if (!isset($_SESSION['volunteer_id'])) {
-    header('Content-Type: application/json');
     echo json_encode(['success' => false, 'message' => 'Not logged in']);
     exit();
 }
 
 $conn = getDBConnection();
 $volunteer_id = $_SESSION['volunteer_id'];
-$task_id = intval($_POST['task_id']);
-$report_text = mysqli_real_escape_string($conn, $_POST['report_text']);
+$task_id = intval($_POST['task_id'] ?? 0);
+$report_text = mysqli_real_escape_string($conn, $_POST['report_text'] ?? '');
 
 if (!$task_id || empty($report_text)) {
-    echo json_encode(['success' => false, 'message' => 'Task ID and report text required']);
+    echo json_encode(['success' => false, 'message' => 'Missing required fields']);
     exit();
 }
 
-// Create upload directory
-$upload_dir = 'uploads/proofs/' . date('Y/m/d/');
+// Check if volunteer has permission for this task
+$task_check = "SELECT id FROM tasks WHERE id = ? AND assigned_to = ?";
+$stmt = mysqli_prepare($conn, $task_check);
+mysqli_stmt_bind_param($stmt, "ii", $task_id, $volunteer_id);
+mysqli_stmt_execute($stmt);
+$task_exists = mysqli_stmt_get_result($stmt)->num_rows > 0;
+
+if (!$task_exists) {
+    echo json_encode(['success' => false, 'message' => 'Task not assigned to you']);
+    exit();
+}
+
+// Handle file uploads
+$upload_dir = 'uploads/reports/';
 if (!file_exists($upload_dir)) {
     mkdir($upload_dir, 0777, true);
 }
 
-// Process uploaded files
 $images = [];
 $documents = [];
 $videos = [];
 
-// Maximum file sizes (in bytes)
-$max_image_size = 2 * 1024 * 1024; // 2MB
-$max_document_size = 5 * 1024 * 1024; // 5MB
-$max_video_size = 10 * 1024 * 1024; // 10MB
-
-// Allowed file types
-$allowed_images = ['jpg', 'jpeg', 'png', 'gif'];
-$allowed_documents = ['pdf', 'doc', 'docx'];
-$allowed_videos = ['mp4', 'mov', 'avi'];
-
-function processUpload($file, $type, $max_size, $allowed_exts, $upload_dir) {
-    $uploaded_files = [];
+function handleFileUpload($file, $type, $max_size, $allowed_extensions, &$array) {
+    global $upload_dir;
     
-    if (is_array($file['name'])) {
-        for ($i = 0; $i < count($file['name']); $i++) {
-            if ($file['error'][$i] === UPLOAD_ERR_OK) {
-                $result = handleSingleFile($file, $i, $type, $max_size, $allowed_exts, $upload_dir);
-                if ($result) $uploaded_files[] = $result;
-            }
+    if (!isset($file['name'])) return;
+    
+    for ($i = 0; $i < count($file['name']); $i++) {
+        if ($file['error'][$i] !== UPLOAD_ERR_OK) continue;
+        
+        if ($file['size'][$i] > $max_size) {
+            echo json_encode(['success' => false, 'message' => "File too large: {$file['name'][$i]}"]);
+            exit();
         }
-    } else {
-        if ($file['error'] === UPLOAD_ERR_OK) {
-            $result = handleSingleFile($file, null, $type, $max_size, $allowed_exts, $upload_dir);
-            if ($result) $uploaded_files[] = $result;
+        
+        $extension = strtolower(pathinfo($file['name'][$i], PATHINFO_EXTENSION));
+        if (!in_array($extension, $allowed_extensions)) {
+            echo json_encode(['success' => false, 'message' => "Invalid file type: {$file['name'][$i]}"]);
+            exit();
+        }
+        
+        $filename = uniqid() . '_' . preg_replace('/[^a-zA-Z0-9.]/', '_', $file['name'][$i]);
+        $destination = $upload_dir . $filename;
+        
+        if (move_uploaded_file($file['tmp_name'][$i], $destination)) {
+            $array[] = $filename;
         }
     }
-    
-    return $uploaded_files;
 }
 
-function handleSingleFile($file, $index, $type, $max_size, $allowed_exts, $upload_dir) {
-    $filename = $index !== null ? $file['name'][$index] : $file['name'];
-    $tmp_name = $index !== null ? $file['tmp_name'][$index] : $file['tmp_name'];
-    $size = $index !== null ? $file['size'][$index] : $file['size'];
-    $error = $index !== null ? $file['error'][$index] : $file['error'];
-    
-    if ($error !== UPLOAD_ERR_OK) {
-        return false;
-    }
-    
-    if ($size > $max_size) {
-        return false;
-    }
-    
-    $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-    if (!in_array($ext, $allowed_exts)) {
-        return false;
-    }
-    
-    // Generate unique filename
-    $new_filename = uniqid() . '_' . time() . '.' . $ext;
-    $destination = $upload_dir . $new_filename;
-    
-    if (move_uploaded_file($tmp_name, $destination)) {
-        return $destination;
-    }
-    
-    return false;
-}
-
-// Process images
+// Handle image uploads (max 5, 2MB each)
 if (isset($_FILES['images'])) {
-    $images = processUpload($_FILES['images'], 'image', $max_image_size, $allowed_images, $upload_dir);
+    handleFileUpload($_FILES['images'], 'image', 2 * 1024 * 1024, 
+                    ['jpg', 'jpeg', 'png', 'gif'], $images);
 }
 
-// Process documents
+// Handle document uploads (max 3, 5MB each)
 if (isset($_FILES['documents'])) {
-    $documents = processUpload($_FILES['documents'], 'document', $max_document_size, $allowed_documents, $upload_dir);
+    handleFileUpload($_FILES['documents'], 'document', 5 * 1024 * 1024,
+                    ['pdf', 'doc', 'docx', 'txt'], $documents);
 }
 
-// Process videos
+// Handle video uploads (max 2, 10MB each)
 if (isset($_FILES['videos'])) {
-    $videos = processUpload($_FILES['videos'], 'video', $max_video_size, $allowed_videos, $upload_dir);
+    handleFileUpload($_FILES['videos'], 'video', 10 * 1024 * 1024,
+                    ['mp4', 'mov', 'avi', 'mkv'], $videos);
 }
 
-// Convert arrays to JSON for database storage
+// Save report to database
 $images_json = json_encode($images);
 $documents_json = json_encode($documents);
 $videos_json = json_encode($videos);
 
-// Insert into database
-$sql = "INSERT INTO task_proofs 
-        (task_id, volunteer_id, report_text, images, documents, videos, submitted_at) 
+$sql = "INSERT INTO daily_reports 
+        (volunteer_id, task_id, report_text, images, documents, videos, submitted_at) 
         VALUES (?, ?, ?, ?, ?, ?, NOW())";
 $stmt = mysqli_prepare($conn, $sql);
-mysqli_stmt_bind_param($stmt, "iissss", $task_id, $volunteer_id, $report_text, $images_json, $documents_json, $videos_json);
+mysqli_stmt_bind_param($stmt, "iissss", $volunteer_id, $task_id, $report_text, 
+                      $images_json, $documents_json, $videos_json);
 
 if (mysqli_stmt_execute($stmt)) {
-    // Update task status
-    $update_sql = "UPDATE tasks SET status = 'under_review' WHERE id = ?";
-    $update_stmt = mysqli_prepare($conn, $update_sql);
-    mysqli_stmt_bind_param($update_stmt, "i", $task_id);
-    mysqli_stmt_execute($update_stmt);
+    // Add points for submitting report
+    $points_sql = "UPDATE volunteers SET total_points = total_points + 5 WHERE id = ?";
+    $points_stmt = mysqli_prepare($conn, $points_sql);
+    mysqli_stmt_bind_param($points_stmt, "i", $volunteer_id);
+    mysqli_stmt_execute($points_stmt);
     
-    echo json_encode([
-        'success' => true, 
-        'message' => 'Report submitted successfully!',
-        'files_count' => count($images) + count($documents) + count($videos)
-    ]);
+    echo json_encode(['success' => true, 'message' => 'Report submitted successfully']);
 } else {
-    echo json_encode(['success' => false, 'message' => 'Database error: ' . mysqli_error($conn)]);
+    echo json_encode(['success' => false, 'message' => 'Database error']);
 }
 
 mysqli_close($conn);

@@ -12,6 +12,16 @@ $conn = getDBConnection();
 // Handle actions
 if (isset($_GET['action'])) {
     switch ($_GET['action']) {
+        case 'approve':  // ✅ ADDED APPROVE ACTION
+            $request_id = intval($_GET['id']);
+            approveVolunteerRequest($conn, $request_id);
+            break;
+            
+        case 'reject':   // ✅ ADDED REJECT ACTION
+            $request_id = intval($_GET['id']);
+            rejectVolunteerRequest($conn, $request_id);
+            break;
+            
         case 'view':
             $request_id = intval($_GET['id']);
             viewVolunteerRequest($request_id);
@@ -22,6 +32,81 @@ if (isset($_GET['action'])) {
             deleteRequest($conn, $request_id);
             break;
     }
+}
+
+// ✅ ADD APPROVE VOLUNTEER REQUEST FUNCTION
+function approveVolunteerRequest($conn, $request_id) {
+    // Get the request details
+    $sql = "SELECT * FROM volunteer_requests WHERE id = ?";
+    $stmt = mysqli_prepare($conn, $sql);
+    mysqli_stmt_bind_param($stmt, "i", $request_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $request = mysqli_fetch_assoc($result);
+    
+    if (!$request) {
+        $_SESSION['error'] = "❌ Request not found";
+        header("Location: admin_requests.php");
+        exit();
+    }
+    
+    // Generate invitation code
+    $invite_code = 'SAR-' . strtoupper(substr(md5(uniqid()), 0, 8));
+    
+    // Insert into volunteers table
+    $insert_sql = "INSERT INTO volunteers (full_name, email, mobile_number, age, gender, education, skills, ngo_name, role_position, passport_photo, aadhaar_card, school_certificate, status, invite_code) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)";
+    
+    $stmt2 = mysqli_prepare($conn, $insert_sql);
+    mysqli_stmt_bind_param($stmt2, "sssisssssssss",
+        $request['full_name'],
+        $request['email'],
+        $request['mobile_number'],
+        $request['age'],
+        $request['gender'],
+        $request['education'],
+        $request['skills'],
+        $request['ngo_name'],
+        $request['role_position'],
+        $request['passport_photo'],
+        $request['aadhaar_card'],
+        $request['school_certificate'],
+        $invite_code
+    );
+    
+    if (mysqli_stmt_execute($stmt2)) {
+        // Update request status to approved
+        $update_sql = "UPDATE volunteer_requests SET status = 'approved' WHERE id = ?";
+        $stmt3 = mysqli_prepare($conn, $update_sql);
+        mysqli_stmt_bind_param($stmt3, "i", $request_id);
+        mysqli_stmt_execute($stmt3);
+        
+        $_SESSION['success'] = "✅ Volunteer request approved successfully!<br>
+                               ✅ Volunteer added to active volunteers list.<br>
+                               ✅ Invitation Code: <strong>" . $invite_code . "</strong><br>
+                               Volunteer can now login using this invitation code.";
+    } else {
+        $_SESSION['error'] = "❌ Failed to approve volunteer request: " . mysqli_error($conn);
+    }
+    
+    header("Location: admin_requests.php");
+    exit();
+}
+
+// ✅ ADD REJECT VOLUNTEER REQUEST FUNCTION
+function rejectVolunteerRequest($conn, $request_id) {
+    $sql = "UPDATE volunteer_requests SET status = 'rejected' WHERE id = ?";
+    $stmt = mysqli_prepare($conn, $sql);
+    mysqli_stmt_bind_param($stmt, "i", $request_id);
+    
+    if (mysqli_stmt_execute($stmt)) {
+        $_SESSION['success'] = "✅ Volunteer request rejected";
+    } else {
+        $_SESSION['error'] = "❌ Failed to reject volunteer request";
+    }
+    
+    header("Location: admin_requests.php");
+    exit();
 }
 
 function viewVolunteerRequest($request_id) {
@@ -47,49 +132,12 @@ function viewVolunteerRequest($request_id) {
         exit();
     }
     
-    // DEBUG: Check what's in the database
-    error_log("DEBUG - Request ID: " . $request_id);
-    error_log("DEBUG - Passport Photo Path: " . $request['passport_photo']);
-    error_log("DEBUG - Aadhaar Card Path: " . $request['aadhaar_card']);
-    error_log("DEBUG - School Certificate Path: " . $request['school_certificate']);
-    
-    // Function to check if file exists
-    function checkFileExists($path) {
-        if (empty($path)) return false;
+    // Function to fix file paths
+    function fixFilePath($path) {
+        if (empty($path)) return '';
         
-        // Remove base URL if present
-        $local_path = str_replace('http://localhost/sarathi_volunteer_system/', '', $path);
-        $local_path = str_replace('http://localhost/', '', $local_path);
-        
-        // Try multiple locations
-        $possible_paths = [
-            'C:/xampp/htdocs/sarathi_volunteer_system/' . $local_path,
-            'C:/xampp/htdocs/' . $local_path,
-            $_SERVER['DOCUMENT_ROOT'] . '/' . $local_path,
-            $local_path
-        ];
-        
-        foreach ($possible_paths as $test_path) {
-            if (file_exists($test_path)) {
-                error_log("DEBUG - File found at: " . $test_path);
-                return true;
-            }
-        }
-        
-        error_log("DEBUG - File NOT found: " . $path);
-        return false;
-    }
-    
-    // Function to fix file paths - IMPROVED VERSION
-    function fixFilePath($path, $type = '') {
-        if (empty($path)) {
-            error_log("DEBUG - Empty path for type: " . $type);
-            return '';
-        }
-        
-        // Check if already a valid URL
+        // If already a full URL, return as is
         if (strpos($path, 'http://') === 0 || strpos($path, 'https://') === 0) {
-            error_log("DEBUG - Already a URL: " . $path);
             return $path;
         }
         
@@ -99,51 +147,32 @@ function viewVolunteerRequest($request_id) {
         // Clean the path
         $clean_path = ltrim($path, './');
         
-        // Check what type of path we have
         if (strpos($clean_path, 'assets/uploads/') === 0) {
             // Already has correct path structure
-            $final_path = $base_url . $clean_path;
-            error_log("DEBUG - Fixed path (assets): " . $final_path);
-            return $final_path;
+            return $base_url . $clean_path;
         }
         
         // If it's just a filename, determine folder
         if (strpos($clean_path, '/') === false) {
             if (strpos($clean_path, 'passport') !== false) {
-                $final_path = $base_url . 'assets/uploads/passport/' . $clean_path;
+                return $base_url . 'assets/uploads/passport/' . $clean_path;
             } elseif (strpos($clean_path, 'aadhaar') !== false) {
-                $final_path = $base_url . 'assets/uploads/aadhaar/' . $clean_path;
+                return $base_url . 'assets/uploads/aadhaar/' . $clean_path;
             } elseif (strpos($clean_path, 'certificate') !== false) {
-                $final_path = $base_url . 'assets/uploads/certificate/' . $clean_path;
+                return $base_url . 'assets/uploads/certificate/' . $clean_path;
             } else {
-                $final_path = $base_url . 'assets/uploads/' . $clean_path;
+                return $base_url . 'assets/uploads/' . $clean_path;
             }
-            error_log("DEBUG - Fixed path (filename only): " . $final_path);
-            return $final_path;
         }
         
         // Default: prepend base URL
-        $final_path = $base_url . $clean_path;
-        error_log("DEBUG - Fixed path (default): " . $final_path);
-        return $final_path;
+        return $base_url . $clean_path;
     }
     
     // Fix document paths
-    $request['passport_photo'] = fixFilePath($request['passport_photo'], 'passport');
-    $request['aadhaar_card'] = fixFilePath($request['aadhaar_card'], 'aadhaar');
-    $request['school_certificate'] = fixFilePath($request['school_certificate'], 'certificate');
-    
-    // Add debug information
-    $request['debug'] = [
-        'original_passport' => $request['passport_photo'],
-        'original_aadhaar' => $request['aadhaar_card'],
-        'original_certificate' => $request['school_certificate'],
-        'passport_exists' => checkFileExists($request['passport_photo']),
-        'aadhaar_exists' => checkFileExists($request['aadhaar_card']),
-        'certificate_exists' => checkFileExists($request['school_certificate']),
-        'base_url' => 'http://localhost/sarathi_volunteer_system/',
-        'document_root' => $_SERVER['DOCUMENT_ROOT']
-    ];
+    $request['passport_photo'] = fixFilePath($request['passport_photo']);
+    $request['aadhaar_card'] = fixFilePath($request['aadhaar_card']);
+    $request['school_certificate'] = fixFilePath($request['school_certificate']);
     
     echo json_encode($request);
     exit();
@@ -655,10 +684,11 @@ $stats = mysqli_fetch_assoc($stats_result);
                                         </button>
                                         
                                         <?php if($row['status'] == 'pending'): ?>
-                                            <a href="admin_panel.php?action=approve&id=<?php echo $row['id']; ?>" class="btn btn-success btn-sm">
+                                            <!-- ✅ FIXED: Changed links to point to admin_requests.php -->
+                                            <a href="admin_requests.php?action=approve&id=<?php echo $row['id']; ?>" class="btn btn-success btn-sm" onclick="return confirm('Are you sure you want to APPROVE this request?\n\nThe volunteer will be added to active volunteers with an invitation code.')">
                                                 <i class="fas fa-check"></i> Approve
                                             </a>
-                                            <a href="admin_panel.php?action=reject&id=<?php echo $row['id']; ?>" class="btn btn-danger btn-sm">
+                                            <a href="admin_requests.php?action=reject&id=<?php echo $row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to REJECT this request?')">
                                                 <i class="fas fa-times"></i> Reject
                                             </a>
                                         <?php endif; ?>
@@ -756,7 +786,6 @@ $stats = mysqli_fetch_assoc($stats_result);
                                     hour: '2-digit',
                                     minute: '2-digit'
                                 })}</p>
-                                ${data.invite_code ? `<p><strong>Invite Code:</strong> <code>${data.invite_code}</code></p>` : ''}
                             </div>
                             
                             <div>
@@ -842,10 +871,10 @@ $stats = mysqli_fetch_assoc($stats_result);
                             
                             <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
                                 ${data.status === 'pending' ? `
-                                    <a href="admin_panel.php?action=approve&id=${data.id}" class="btn btn-success">
+                                    <a href="admin_requests.php?action=approve&id=${data.id}" class="btn btn-success" onclick="return confirm('Are you sure you want to APPROVE this request?')">
                                         <i class="fas fa-check"></i> Approve Application
                                     </a>
-                                    <a href="admin_panel.php?action=reject&id=${data.id}" class="btn btn-danger">
+                                    <a href="admin_requests.php?action=reject&id=${data.id}" class="btn btn-danger" onclick="return confirm('Are you sure you want to REJECT this request?')">
                                         <i class="fas fa-times"></i> Reject Application
                                     </a>
                                 ` : ''}

@@ -1,4 +1,5 @@
 <?php
+session_start();
 require_once 'config/config.php';
 
 // Check if admin is logged in
@@ -64,10 +65,15 @@ if (isset($_GET['action'])) {
             $id = intval($_GET['id']);
             viewTaskDetails($conn, $id);
             exit();
+            
+        case 'view_live_location':
+            $id = intval($_GET['id']);
+            viewLiveLocation($conn, $id);
+            exit();
     }
 }
 
-// Functions for different actions (keep all your existing functions)
+// Functions for different actions
 function approveVolunteer($conn, $admin_id, $volunteer_id) {
     $invite_code = 'SAR' . strtoupper(substr(md5(uniqid()), 0, 8));
     
@@ -140,6 +146,9 @@ function createTask($conn, $admin_id) {
     $title = mysqli_real_escape_string($conn, $_POST['task_title']);
     $description = mysqli_real_escape_string($conn, $_POST['task_description']);
     $location = mysqli_real_escape_string($conn, $_POST['task_location']);
+    $latitude = isset($_POST['latitude']) ? floatval($_POST['latitude']) : NULL;
+    $longitude = isset($_POST['longitude']) ? floatval($_POST['longitude']) : NULL;
+    $geofence_radius = isset($_POST['geofence_radius']) ? intval($_POST['geofence_radius']) : 100;
     $category = mysqli_real_escape_string($conn, $_POST['task_category']);
     $urgency = mysqli_real_escape_string($conn, $_POST['task_urgency']);
     $priority = mysqli_real_escape_string($conn, $_POST['task_priority']);
@@ -148,17 +157,40 @@ function createTask($conn, $admin_id) {
     
     $status = $assigned_to ? 'assigned' : 'pending';
     
-    $sql = "INSERT INTO tasks (title, description, location_name, assigned_to, deadline, status, admin_id) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)";
+    $sql = "INSERT INTO tasks (title, description, location_name, latitude, longitude, geofence_radius, 
+                              task_category, task_urgency, task_priority, assigned_to, deadline, status, admin_id) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     $stmt = mysqli_prepare($conn, $sql);
-    mysqli_stmt_bind_param($stmt, "ssisssi", 
-        $title, $description, $location, $assigned_to, $deadline, $status, $admin_id);
+    mysqli_stmt_bind_param($stmt, "sssddiisssssi", 
+        $title, $description, $location, $latitude, $longitude, $geofence_radius,
+        $category, $urgency, $priority, $assigned_to, $deadline, $status, $admin_id);
     
     if (mysqli_stmt_execute($stmt)) {
         $task_id = mysqli_insert_id($conn);
         adminLogActivity($conn, $admin_id, 'task_create', "Created task ID: $task_id - $title");
-        $_SESSION['success'] = "Task created successfully" . ($assigned_to ? " and assigned" : "");
+        
+        // Send notification if assigned
+        if ($assigned_to) {
+            // Get volunteer email for notification
+            $volunteer_sql = "SELECT email, full_name FROM volunteers WHERE id = ?";
+            $vol_stmt = mysqli_prepare($conn, $volunteer_sql);
+            mysqli_stmt_bind_param($vol_stmt, "i", $assigned_to);
+            mysqli_stmt_execute($vol_stmt);
+            $vol_result = mysqli_stmt_get_result($vol_stmt);
+            $volunteer = mysqli_fetch_assoc($vol_result);
+            
+            if ($volunteer) {
+                $notification_sql = "INSERT INTO notifications (title, message, type, target, created_by, status) 
+                                   VALUES ('New Task Assigned', 'You have been assigned a new task: {$title}. Location: {$location}', 
+                                          'info', 'volunteer_{$assigned_to}', ?, 'sent')";
+                $notif_stmt = mysqli_prepare($conn, $notification_sql);
+                mysqli_stmt_bind_param($notif_stmt, "i", $admin_id);
+                mysqli_stmt_execute($notif_stmt);
+            }
+        }
+        
+        $_SESSION['success'] = "Task created successfully" . ($assigned_to ? " and assigned to volunteer" : "");
     } else {
         $_SESSION['error'] = "Failed to create task: " . mysqli_error($conn);
     }
@@ -207,6 +239,15 @@ function assignTask($conn, $admin_id) {
     
     if (mysqli_stmt_execute($stmt)) {
         adminLogActivity($conn, $admin_id, 'task_assign', "Assigned task ID: $task_id to volunteer ID: $assigned_to");
+        
+        // Send notification to volunteer
+        $notification_sql = "INSERT INTO notifications (title, message, type, target, created_by, status) 
+                           VALUES ('Task Assigned', 'A task has been assigned to you. Check your dashboard.', 
+                                  'info', 'volunteer_{$assigned_to}', ?, 'sent')";
+        $notif_stmt = mysqli_prepare($conn, $notification_sql);
+        mysqli_stmt_bind_param($notif_stmt, "i", $admin_id);
+        mysqli_stmt_execute($notif_stmt);
+        
         $_SESSION['success'] = "Task assigned successfully";
     } else {
         $_SESSION['error'] = "Failed to assign task: " . mysqli_error($conn);
@@ -291,6 +332,13 @@ function viewVolunteerDetails($conn, $volunteer_id) {
         mysqli_stmt_bind_param($checkins_stmt, "i", $volunteer_id);
         mysqli_stmt_execute($checkins_stmt);
         $volunteer['recent_checkins'] = mysqli_fetch_all(mysqli_stmt_get_result($checkins_stmt), MYSQLI_ASSOC);
+        
+        // Get latest location
+        $location_sql = "SELECT * FROM volunteer_locations WHERE volunteer_id = ? ORDER BY timestamp DESC LIMIT 1";
+        $location_stmt = mysqli_prepare($conn, $location_sql);
+        mysqli_stmt_bind_param($location_stmt, "i", $volunteer_id);
+        mysqli_stmt_execute($location_stmt);
+        $volunteer['latest_location'] = mysqli_fetch_assoc(mysqli_stmt_get_result($location_stmt));
     }
     
     echo json_encode($volunteer);
@@ -304,7 +352,7 @@ function viewTaskDetails($conn, $task_id) {
                    a.username as created_by_name
             FROM tasks t
             LEFT JOIN volunteers v ON t.assigned_to = v.id
-            LEFT JOIN admins a ON t.created_by = a.id
+            LEFT JOIN admins a ON t.admin_id = a.id
             WHERE t.id = ?";
     
     $stmt = mysqli_prepare($conn, $sql);
@@ -314,18 +362,58 @@ function viewTaskDetails($conn, $task_id) {
     $task = mysqli_fetch_assoc($result);
     
     if ($task) {
-        $reports_sql = "SELECT * FROM task_reports WHERE task_id = ?";
+        $reports_sql = "SELECT * FROM daily_reports WHERE task_id = ?";
         $reports_stmt = mysqli_prepare($conn, $reports_sql);
         mysqli_stmt_bind_param($reports_stmt, "i", $task_id);
         mysqli_stmt_execute($reports_stmt);
         $task['reports'] = mysqli_fetch_all(mysqli_stmt_get_result($reports_stmt), MYSQLI_ASSOC);
+        
+        // Get volunteer's latest location if assigned
+        if ($task['assigned_to']) {
+            $location_sql = "SELECT * FROM volunteer_locations WHERE volunteer_id = ? ORDER BY timestamp DESC LIMIT 1";
+            $location_stmt = mysqli_prepare($conn, $location_sql);
+            mysqli_stmt_bind_param($location_stmt, "i", $task['assigned_to']);
+            mysqli_stmt_execute($location_stmt);
+            $task['volunteer_location'] = mysqli_fetch_assoc(mysqli_stmt_get_result($location_stmt));
+        }
     }
     
     echo json_encode($task);
     exit();
 }
 
-// Renamed function to avoid conflict with config.php
+function viewLiveLocation($conn, $volunteer_id) {
+    header('Content-Type: application/json');
+    
+    $sql = "SELECT vl.*, v.full_name, v.email 
+            FROM volunteer_locations vl
+            JOIN volunteers v ON vl.volunteer_id = v.id
+            WHERE v.id = ? 
+            ORDER BY vl.timestamp DESC 
+            LIMIT 1";
+    
+    $stmt = mysqli_prepare($conn, $sql);
+    mysqli_stmt_bind_param($stmt, "i", $volunteer_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $location = mysqli_fetch_assoc($result);
+    
+    if (!$location) {
+        // Get volunteer info even if no location
+        $sql2 = "SELECT * FROM volunteers WHERE id = ?";
+        $stmt2 = mysqli_prepare($conn, $sql2);
+        mysqli_stmt_bind_param($stmt2, "i", $volunteer_id);
+        mysqli_stmt_execute($stmt2);
+        $location = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt2));
+        $location['latitude'] = null;
+        $location['longitude'] = null;
+    }
+    
+    echo json_encode($location);
+    exit();
+}
+
+// Renamed function to avoid conflict
 if (!function_exists('adminLogActivity')) {
     function adminLogActivity($conn, $admin_id, $action, $description) {
         $ip_address = $_SERVER['REMOTE_ADDR'];
@@ -340,23 +428,31 @@ if (!function_exists('adminLogActivity')) {
 }
 
 // Get statistics
+// Get statistics - UPDATED FOR YOUR TABLE STRUCTURE
 $stats_sql = "SELECT 
     (SELECT COUNT(*) FROM volunteers WHERE status = 'pending') as pending_volunteers,
     (SELECT COUNT(*) FROM volunteers WHERE status = 'active') as active_volunteers,
-    (SELECT COUNT(*) FROM volunteers WHERE status = 'active') as on_duty_volunteers,
+    (SELECT COUNT(*) FROM tasks WHERE assigned_to IS NOT NULL AND status IN ('assigned', 'in_progress')) as on_duty_volunteers,
     (SELECT COUNT(*) FROM tasks WHERE status = 'pending') as pending_tasks,
     (SELECT COUNT(*) FROM tasks WHERE status IN ('assigned', 'in_progress')) as active_tasks,
     (SELECT COUNT(*) FROM tasks WHERE status = 'completed') as completed_tasks,
     (SELECT COUNT(*) FROM leave_requests WHERE status = 'pending') as pending_leaves,
     (SELECT COUNT(*) FROM alerts WHERE status = 'active') as active_alerts,
     (SELECT COUNT(*) FROM alerts WHERE status = 'critical') as critical_alerts,
-    (SELECT COUNT(*) FROM volunteer_checkins WHERE DATE(checkin_time) = CURDATE()) as today_checkins";
+    (SELECT COUNT(*) FROM volunteer_checkins WHERE DATE(checkin_time) = CURDATE()) as today_checkins,
+    (SELECT AVG(total_points) FROM volunteers WHERE status = 'active') as avg_points";
 $stats_result = mysqli_query($conn, $stats_sql);
 $stats = mysqli_fetch_assoc($stats_result);
 
-if (!isset($stats['avg_rating'])) {
-    $stats['avg_rating'] = 'N/A';
-}
+// Get assigned tasks for display
+$assigned_tasks_sql = "SELECT t.*, v.full_name as volunteer_name, v.email as volunteer_email,
+                       v.total_points as volunteer_points, v.current_rank as volunteer_rank
+                       FROM tasks t
+                       LEFT JOIN volunteers v ON t.assigned_to = v.id
+                       WHERE t.assigned_to IS NOT NULL
+                       ORDER BY t.created_at DESC 
+                       LIMIT 15";
+$assigned_tasks_result = mysqli_query($conn, $assigned_tasks_sql);
 
 // Get pending volunteers
 $pending_volunteers_sql = "SELECT * FROM volunteers WHERE status = 'pending' ORDER BY created_at DESC LIMIT 5";
@@ -366,7 +462,7 @@ $pending_volunteers_result = mysqli_query($conn, $pending_volunteers_sql);
 $active_tasks_sql = "SELECT t.*, v.full_name as volunteer_name 
                     FROM tasks t 
                     LEFT JOIN volunteers v ON t.assigned_to = v.id 
-                    WHERE t.status = 'in_progress' 
+                    WHERE t.status IN ('assigned', 'in_progress')
                     ORDER BY t.created_at DESC 
                     LIMIT 10";
 $active_tasks_result = mysqli_query($conn, $active_tasks_sql);
@@ -406,23 +502,23 @@ $checkins_sql = "SELECT c.*, v.full_name, v.email
                 LIMIT 10";
 $checkins_result = mysqli_query($conn, $checkins_sql);
 
-// Get volunteers for assignment
-$volunteers_sql = "SELECT id, full_name, email FROM volunteers WHERE status = 'active'";
+// Get volunteers for assignment - UPDATED FOR YOUR TABLE
+$volunteers_sql = "SELECT id, full_name, email, total_points, current_rank, tasks_completed 
+                   FROM volunteers WHERE status = 'active' 
+                   ORDER BY total_points DESC";
 $volunteers_result = mysqli_query($conn, $volunteers_sql);
 $volunteers = [];
 while($row = mysqli_fetch_assoc($volunteers_result)) {
     $volunteers[] = $row;
 }
 
-// Get leaderboard data
-$leaderboard_sql = "SELECT v.id, v.full_name, v.email, 
-                   COUNT(DISTINCT t.id) as total_tasks,
-                   COUNT(DISTINCT CASE WHEN t.status = 'completed' THEN t.id END) as completed_tasks
+// Get leaderboard data - UPDATED FOR YOUR TABLE STRUCTURE
+$leaderboard_sql = "SELECT v.id, v.full_name, v.email, v.total_points, v.current_rank,
+                   (SELECT COUNT(*) FROM tasks t WHERE t.assigned_to = v.id AND t.status = 'completed') as completed_tasks,
+                   v.tasks_completed as total_completed
                    FROM volunteers v 
-                   LEFT JOIN tasks t ON v.id = t.assigned_to 
                    WHERE v.status = 'active' 
-                   GROUP BY v.id 
-                   ORDER BY completed_tasks DESC 
+                   ORDER BY v.total_points DESC, v.current_rank ASC 
                    LIMIT 10";
 $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
 ?>
@@ -435,6 +531,9 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
     <title>Admin Dashboard - Sarathi Field Management</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS for Maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
     <style>
         /* ===== CLEAN COLOR PALETTE ===== */
         :root {
@@ -887,6 +986,44 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
         .status-critical { background: #fee2e2; color: var(--danger); }
         .status-assigned { background: #f3e8ff; color: var(--accent); }
         .status-inactive { background: #f1f5f9; color: var(--text-light); }
+        .status-in_progress { background: #dbeafe; color: var(--primary); }
+
+        /* ===== MAP STYLES ===== */
+        #taskMap, #locationMap {
+            height: 300px;
+            width: 100%;
+            border-radius: var(--radius-sm);
+            margin-top: 10px;
+            border: 1px solid var(--border);
+        }
+
+        .leaflet-container {
+            font-family: 'Nunito', sans-serif;
+        }
+
+        .volunteer-marker {
+            background: var(--primary);
+            color: white;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .task-marker {
+            background: var(--secondary);
+            color: white;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
 
         /* ===== MODALS ===== */
         .modal {
@@ -924,7 +1061,7 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
             background: white;
             border-radius: var(--radius);
             width: 100%;
-            max-width: 600px;
+            max-width: 800px;
             max-height: 90vh;
             overflow-y: auto;
             box-shadow: var(--shadow-hover);
@@ -1065,6 +1202,7 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
             gap: 16px;
             color: var(--text-light);
             font-size: 0.85rem;
+            flex-wrap: wrap;
         }
 
         .task-meta i {
@@ -1075,15 +1213,17 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
             display: flex;
             gap: 8px;
             margin-top: 16px;
+            flex-wrap: wrap;
         }
 
-        /* ===== VOLUNTEER CARDS ===== */
-        .volunteer-list {
+        /* ===== ASSIGNED TASKS GRID ===== */
+        .assigned-tasks-grid {
             display: grid;
-            gap: 16px;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
         }
 
-        .volunteer-card {
+        .assigned-task-card {
             background: white;
             border-radius: var(--radius);
             padding: 20px;
@@ -1091,169 +1231,39 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
             transition: all 0.3s ease;
         }
 
-        .volunteer-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 12px;
+        .assigned-task-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow);
         }
 
-        .volunteer-name {
-            font-weight: 600;
-            color: var(--text-dark);
-            margin-bottom: 4px;
-        }
-
-        .volunteer-email {
-            color: var(--text-light);
-            font-size: 0.9rem;
-            margin-bottom: 8px;
-        }
-
-        .volunteer-info {
-            color: var(--text-light);
-            font-size: 0.85rem;
-            margin-bottom: 4px;
+        .task-volunteer-info {
             display: flex;
             align-items: center;
-            gap: 8px;
-        }
-
-        .volunteer-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 16px;
-        }
-
-        /* ===== ALERT ITEMS ===== */
-        .alert-list {
-            display: grid;
             gap: 12px;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border);
         }
 
-        .alert-item {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 16px;
-            background: white;
-            border-radius: var(--radius);
-            border: 1px solid var(--border);
-            transition: all 0.3s ease;
-        }
-
-        .alert-item:hover {
-            transform: translateX(4px);
-        }
-
-        .alert-item.critical {
-            border-left: 4px solid var(--danger);
-        }
-
-        .alert-item.high {
-            border-left: 4px solid var(--warning);
-        }
-
-        .alert-item.medium {
-            border-left: 4px solid var(--primary);
-        }
-
-        .alert-icon {
-            width: 40px;
-            height: 40px;
-            background: var(--danger);
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 18px;
-        }
-
-        .alert-item.high .alert-icon {
-            background: var(--warning);
-        }
-
-        .alert-item.medium .alert-icon {
-            background: var(--primary);
-        }
-
-        .alert-content {
-            flex: 1;
-        }
-
-        .alert-title {
-            font-weight: 600;
-            color: var(--text-dark);
-            margin-bottom: 4px;
-        }
-
-        .alert-description {
-            color: var(--text-light);
-            font-size: 0.9rem;
-        }
-
-        /* ===== LEADERBOARD ===== */
-        .leaderboard {
-            display: grid;
-            gap: 12px;
-        }
-
-        .leaderboard-item {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 16px;
-            background: white;
-            border-radius: var(--radius);
-            border: 1px solid var(--border);
-            transition: all 0.3s ease;
-        }
-
-        .leaderboard-item:hover {
-            transform: translateX(4px);
-        }
-
-        .rank-number {
-            width: 40px;
-            height: 40px;
+        .volunteer-avatar {
+            width: 50px;
+            height: 50px;
             background: linear-gradient(135deg, var(--primary), var(--accent));
-            border-radius: 10px;
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-weight: 700;
-            font-size: 18px;
+            font-size: 20px;
         }
 
-        .leaderboard-info {
-            flex: 1;
+        .volunteer-details h4 {
+            margin-bottom: 5px;
         }
 
-        .leaderboard-name {
+        .volunteer-points {
+            color: var(--warning);
             font-weight: 600;
-            color: var(--text-dark);
-            margin-bottom: 2px;
-        }
-
-        .leaderboard-email {
-            color: var(--text-light);
-            font-size: 0.85rem;
-            margin-bottom: 4px;
-        }
-
-        .leaderboard-stats {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            margin-top: 8px;
-        }
-
-        .stat-completed {
-            font-weight: 700;
-            color: var(--primary);
-            font-size: 1.1rem;
         }
 
         /* ===== RESPONSIVE DESIGN ===== */
@@ -1264,6 +1274,10 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
             
             .admin-sidebar {
                 display: none;
+            }
+            
+            .assigned-tasks-grid {
+                grid-template-columns: 1fr;
             }
         }
 
@@ -1327,6 +1341,7 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
         .gap-2 { gap: 8px; }
         .gap-3 { gap: 12px; }
         .gap-4 { gap: 16px; }
+        .w-full { width: 100%; }
     </style>
 </head>
 <body>
@@ -1360,58 +1375,59 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
     <!-- Main Container -->
     <div class="admin-container">
         <!-- Sidebar -->
-       <nav class="admin-sidebar">
-    <ul class="sidebar-nav">
-        <li><a href="admin_panel.php" class="active">
-            <i class="fas fa-tachometer-alt"></i>
-            Dashboard
-        </a></li>
-        <li><a href="admin_tasks.php">
-            <i class="fas fa-tasks"></i>
-            Task Management
-        </a></li>
-        <li><a href="admin_created_tasks.php">
-            <i class="fas fa-list-check"></i>
-            Created Tasks
-        </a></li>
-        <li><a href="admin_volunteers.php">
-            <i class="fas fa-users"></i>
-            Volunteers
-        </a></li>
-        <li><a href="admin_attendance.php">
-            <i class="fas fa-clipboard-check"></i>
-            Attendance
-        </a></li>
-        <li><a href="admin_track.php">
-            <i class="fas fa-location-dot"></i>
-            Track Volunteers
-        </a></li>
-        <li><a href="admin_leaves.php">
-            <i class="fas fa-calendar-alt"></i>
-            Leave Management
-        </a></li>
-        <li><a href="admin_society_problems.php">
-            <i class="fas fa-exclamation-circle"></i>
-            Society Problems
-        </a></li>
-        <li><a href="admin_reports.php">
-            <i class="fas fa-chart-bar"></i>
-            Reports
-        </a></li>
-        <li><a href="admin_rankings.php">
-            <i class="fas fa-trophy"></i>
-            Rankings
-        </a></li>
-        <li><a href="admin_notifications.php">
-            <i class="fas fa-bullhorn"></i>
-            Notifications
-        </a></li>
-        <li><a href="admin_alerts.php">
-            <i class="fas fa-exclamation-triangle"></i>
-            Alerts
-        </a></li>
-    </ul>
-</nav>
+        <nav class="admin-sidebar">
+            <ul class="sidebar-nav">
+                <li><a href="admin_panel.php" class="active">
+                    <i class="fas fa-tachometer-alt"></i>
+                    Dashboard
+                </a></li>
+                <li><a href="admin_tasks.php">
+                    <i class="fas fa-tasks"></i>
+                    Task Management
+                </a></li>
+                <li><a href="admin_created_tasks.php">
+                    <i class="fas fa-list-check"></i>
+                    Created Tasks
+                </a></li>
+                <li><a href="admin_volunteers.php">
+                    <i class="fas fa-users"></i>
+                    Volunteers
+                </a></li>
+                <li><a href="admin_track.php">
+                    <i class="fas fa-location-dot"></i>
+                    Live Tracking
+                </a></li>
+                <li><a href="admin_attendance.php">
+                    <i class="fas fa-clipboard-check"></i>
+                    Attendance
+                </a></li>
+                <li><a href="admin_leaves.php">
+                    <i class="fas fa-calendar-alt"></i>
+                    Leave Management
+                </a></li>
+                <li><a href="admin_society_problems.php">
+                    <i class="fas fa-exclamation-circle"></i>
+                    Society Problems
+                </a></li>
+                <li><a href="admin_reports.php">
+                    <i class="fas fa-chart-bar"></i>
+                    Reports
+                </a></li>
+                <li><a href="admin_rankings.php">
+                    <i class="fas fa-trophy"></i>
+                    Rankings
+                </a></li>
+                <li><a href="admin_notifications.php">
+                    <i class="fas fa-bullhorn"></i>
+                    Notifications
+                </a></li>
+                <li><a href="admin_alerts.php">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Alerts
+                </a></li>
+            </ul>
+        </nav>
+
         <!-- Main Content -->
         <div class="admin-content">
             <!-- Alert Messages -->
@@ -1436,7 +1452,7 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                         <i class="fas fa-plus-circle"></i>
                     </div>
                     <h3>Create Task</h3>
-                    <p>Assign new task to volunteer</p>
+                    <p>Assign new task with location</p>
                 </div>
                 
                 <div class="action-card" onclick="openSendNotificationModal()">
@@ -1447,12 +1463,12 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                     <p>Broadcast notification</p>
                 </div>
                 
-                <div class="action-card" onclick="window.location.href='admin_volunteers.php'">
+                <div class="action-card" onclick="window.location.href='admin_track.php'">
                     <div class="action-icon">
-                        <i class="fas fa-user-plus"></i>
+                        <i class="fas fa-map-marker-alt"></i>
                     </div>
-                    <h3>Add Volunteer</h3>
-                    <p>Register new volunteer</p>
+                    <h3>Live Track</h3>
+                    <p>Track volunteers on map</p>
                 </div>
                 
                 <div class="action-card" onclick="window.location.href='admin_society_problems.php'">
@@ -1490,6 +1506,17 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                 
                 <div class="stat-card">
                     <div class="stat-icon">
+                        <i class="fas fa-map-marker-alt"></i>
+                    </div>
+                    <div class="stat-number"><?php echo $stats['on_duty_volunteers'] ?: 0; ?></div>
+                    <div class="stat-label">On Duty</div>
+                    <div class="stat-trend">
+                        <?php echo $stats['today_checkins'] ?: 0; ?> checked in today
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
                         <i class="fas fa-exclamation-triangle"></i>
                     </div>
                     <div class="stat-number"><?php echo $stats['critical_alerts'] ?: 0; ?></div>
@@ -1498,17 +1525,92 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                         <?php echo $stats['active_alerts'] ?: 0; ?> total active
                     </div>
                 </div>
-                
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-clock"></i>
+            </div>
+
+            <!-- Assigned Tasks Section -->
+            <div class="panel mb-4">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <i class="fas fa-tasks"></i>
+                        Recently Assigned Tasks
                     </div>
-                    <div class="stat-number"><?php echo $stats['today_checkins'] ?: 0; ?></div>
-                    <div class="stat-label">Today's Check-ins</div>
-                    <div class="stat-trend">
-                        <?php echo $stats['pending_leaves'] ?: 0; ?> pending leaves
-                    </div>
+                    <span class="status-badge status-assigned"><?php echo $stats['active_tasks'] ?: 0; ?> Active</span>
                 </div>
+                
+                <?php if(mysqli_num_rows($assigned_tasks_result) > 0): ?>
+                    <div class="assigned-tasks-grid">
+                        <?php while($task = mysqli_fetch_assoc($assigned_tasks_result)): ?>
+                            <div class="assigned-task-card <?php echo strtolower($task['task_priority'] ?? 'medium'); ?>">
+                                <div class="task-volunteer-info">
+                                    <div class="volunteer-avatar">
+                                        <i class="fas fa-user"></i>
+                                    </div>
+                                    <div class="volunteer-details">
+                                        <h4><?php echo htmlspecialchars($task['volunteer_name']); ?></h4>
+                                        <div style="font-size: 0.85rem; color: var(--text-light);">
+                                            <?php echo htmlspecialchars($task['volunteer_email']); ?>
+                                        </div>
+                                        <div class="volunteer-points">
+                                            <i class="fas fa-star"></i> <?php echo $task['volunteer_points'] ?: 0; ?> points
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="task-header">
+                                    <div>
+                                        <div class="task-title"><?php echo htmlspecialchars($task['title']); ?></div>
+                                        <div class="status-badge status-<?php echo str_replace('_', '-', $task['status']); ?>">
+                                            <?php echo ucfirst(str_replace('_', ' ', $task['status'])); ?>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="task-description">
+                                    <?php echo htmlspecialchars(substr($task['description'], 0, 100)); ?>...
+                                </div>
+                                
+                                <div class="task-meta">
+                                    <?php if($task['location_name']): ?>
+                                        <span><i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($task['location_name']); ?></span>
+                                    <?php endif; ?>
+                                    <?php if($task['task_category']): ?>
+                                        <span><i class="fas fa-tag"></i> <?php echo htmlspecialchars($task['task_category']); ?></span>
+                                    <?php endif; ?>
+                                    <?php if($task['deadline']): ?>
+                                        <span><i class="fas fa-calendar"></i> <?php echo date('d M', strtotime($task['deadline'])); ?></span>
+                                    <?php endif; ?>
+                                </div>
+                                
+                                <div class="task-actions">
+                                    <button class="btn btn-sm btn-outline" onclick="viewTaskDetails(<?php echo $task['id']; ?>)">
+                                        <i class="fas fa-eye"></i> View
+                                    </button>
+                                    <button class="btn btn-sm btn-primary" onclick="openAssignTaskModal(<?php echo $task['id']; ?>)">
+                                        <i class="fas fa-user-edit"></i> Reassign
+                                    </button>
+                                    <?php if($task['assigned_to']): ?>
+                                        <button class="btn btn-sm btn-info" onclick="viewVolunteerLocation(<?php echo $task['assigned_to']; ?>)">
+                                            <i class="fas fa-location-dot"></i> Track
+                                        </button>
+                                    <?php endif; ?>
+                                    <?php if($task['status'] !== 'completed'): ?>
+                                        <button class="btn btn-sm btn-success" onclick="updateTaskStatusModal(<?php echo $task['id']; ?>)">
+                                            <i class="fas fa-check"></i> Complete
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endwhile; ?>
+                    </div>
+                <?php else: ?>
+                    <div style="text-align: center; padding: 40px; color: var(--text-light);">
+                        <i class="fas fa-tasks" style="font-size: 3rem; margin-bottom: 16px;"></i>
+                        <p>No tasks assigned yet</p>
+                        <button class="btn btn-primary mt-3" onclick="openCreateTaskModal()">
+                            <i class="fas fa-plus"></i> Create First Task
+                        </button>
+                    </div>
+                <?php endif; ?>
             </div>
 
             <!-- Two Column Layout -->
@@ -1525,18 +1627,19 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                     
                     <?php if(mysqli_num_rows($active_tasks_result) > 0): ?>
                         <div class="task-list">
+                            <?php mysqli_data_seek($active_tasks_result, 0); ?>
                             <?php while($task = mysqli_fetch_assoc($active_tasks_result)): ?>
-                                <div class="task-card <?php echo strtolower($task['priority']); ?>">
+                                <div class="task-card <?php echo strtolower($task['task_priority'] ?? 'medium'); ?>">
                                     <div class="task-header">
                                         <div>
                                             <div class="task-title"><?php echo htmlspecialchars($task['title']); ?></div>
-                                            <div class="status-badge status-<?php echo $task['status']; ?>">
-                                                <?php echo $task['status']; ?>
+                                            <div class="status-badge status-<?php echo str_replace('_', '-', $task['status']); ?>">
+                                                <?php echo ucfirst(str_replace('_', ' ', $task['status'])); ?>
                                             </div>
                                         </div>
                                     </div>
                                     <div class="task-description">
-                                        <?php echo htmlspecialchars(substr($task['description'], 0, 100)); ?>...
+                                        <?php echo htmlspecialchars(substr($task['description'], 0, 80)); ?>...
                                     </div>
                                     <div class="task-meta">
                                         <?php if($task['volunteer_name']): ?>
@@ -1558,12 +1661,9 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                             <?php endwhile; ?>
                         </div>
                     <?php else: ?>
-                        <div style="text-align: center; padding: 40px; color: var(--text-light);">
-                            <i class="fas fa-inbox" style="font-size: 3rem; margin-bottom: 16px;"></i>
+                        <div style="text-align: center; padding: 20px; color: var(--text-light);">
+                            <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 12px;"></i>
                             <p>No active tasks</p>
-                            <button class="btn btn-primary mt-3" onclick="openCreateTaskModal()">
-                                <i class="fas fa-plus"></i> Create First Task
-                            </button>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -1573,40 +1673,31 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                     <div class="panel-header">
                         <div class="panel-title">
                             <i class="fas fa-user-clock"></i>
-                            Pending Volunteer Approvals
+                            Pending Volunteers
                         </div>
                         <span class="status-badge status-pending"><?php echo $stats['pending_volunteers'] ?: 0; ?> Pending</span>
                     </div>
                     
                     <?php if(mysqli_num_rows($pending_volunteers_result) > 0): ?>
-                        <div class="volunteer-list">
+                        <div class="task-list">
                             <?php while($volunteer = mysqli_fetch_assoc($pending_volunteers_result)): ?>
-                                <div class="volunteer-card">
-                                    <div class="volunteer-header">
+                                <div class="task-card">
+                                    <div class="task-header">
                                         <div>
-                                            <div class="volunteer-name"><?php echo htmlspecialchars($volunteer['full_name']); ?></div>
-                                            <div class="volunteer-email"><?php echo htmlspecialchars($volunteer['email']); ?></div>
+                                            <div class="task-title"><?php echo htmlspecialchars($volunteer['full_name']); ?></div>
+                                            <div class="status-badge status-pending">Pending</div>
                                         </div>
-                                        <span class="status-badge status-pending">Pending</span>
                                     </div>
-                                    
-                                    <div class="volunteer-info">
-                                        <i class="fas fa-phone"></i> <?php echo htmlspecialchars($volunteer['mobile_number']); ?>
+                                    <div class="task-description">
+                                        <?php echo htmlspecialchars($volunteer['email']); ?>
                                     </div>
-                                    
-                                    <?php if($volunteer['education']): ?>
-                                        <div class="volunteer-info">
-                                            <i class="fas fa-graduation-cap"></i> <?php echo htmlspecialchars($volunteer['education']); ?>
-                                        </div>
-                                    <?php endif; ?>
-                                    
-                                    <?php if($volunteer['ngo_name']): ?>
-                                        <div class="volunteer-info">
-                                            <i class="fas fa-building"></i> <?php echo htmlspecialchars($volunteer['ngo_name']); ?>
-                                        </div>
-                                    <?php endif; ?>
-                                    
-                                    <div class="volunteer-actions">
+                                    <div class="task-meta">
+                                        <span><i class="fas fa-phone"></i> <?php echo htmlspecialchars($volunteer['mobile_number']); ?></span>
+                                        <?php if($volunteer['education']): ?>
+                                            <span><i class="fas fa-graduation-cap"></i> <?php echo htmlspecialchars($volunteer['education']); ?></span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="task-actions">
                                         <button class="btn btn-sm btn-success" onclick="approveVolunteer(<?php echo $volunteer['id']; ?>)">
                                             <i class="fas fa-check"></i> Approve
                                         </button>
@@ -1621,8 +1712,8 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                             <?php endwhile; ?>
                         </div>
                     <?php else: ?>
-                        <div style="text-align: center; padding: 40px; color: var(--text-light);">
-                            <i class="fas fa-check-circle" style="font-size: 3rem; margin-bottom: 16px;"></i>
+                        <div style="text-align: center; padding: 20px; color: var(--text-light);">
+                            <i class="fas fa-check-circle" style="font-size: 2rem; margin-bottom: 12px;"></i>
                             <p>No pending volunteer approvals</p>
                         </div>
                     <?php endif; ?>
@@ -1640,48 +1731,37 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                     <span class="status-badge status-pending"><?php echo $stats['pending_leaves'] ?: 0; ?> Pending</span>
                 </div>
                 
-                <div class="volunteer-list">
+                <div class="task-list">
                     <?php while($leave = mysqli_fetch_assoc($pending_leaves_result)): ?>
-                        <div class="volunteer-card">
-                            <div class="volunteer-header">
+                        <div class="task-card">
+                            <div class="task-header">
                                 <div>
-                                    <div class="volunteer-name"><?php echo htmlspecialchars($leave['volunteer_name']); ?></div>
-                                    <div class="volunteer-email"><?php echo htmlspecialchars($leave['volunteer_email']); ?></div>
-                                </div>
-                                <span class="status-badge status-pending">Pending</span>
-                            </div>
-                            
-                            <div style="background: #fef3c7; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <div>
-                                        <div style="font-size: 0.9rem; color: #d97706; font-weight: 600;">
-                                            <i class="fas fa-calendar"></i>
-                                            <?php echo date('d M Y', strtotime($leave['start_date'])); ?> 
-                                            - 
-                                            <?php echo date('d M Y', strtotime($leave['end_date'])); ?>
-                                        </div>
-                                        <div style="font-size: 0.8rem; color: #92400e; margin-top: 4px;">
-                                            Type: <?php echo htmlspecialchars($leave['leave_type']); ?>
-                                        </div>
-                                    </div>
-                                    <div style="text-align: right;">
-                                        <div style="font-size: 0.9rem; color: var(--text-dark); font-weight: 600;">
-                                            <?php 
-                                            $start = new DateTime($leave['start_date']);
-                                            $end = new DateTime($leave['end_date']);
-                                            $interval = $start->diff($end);
-                                            echo ($interval->days + 1) . ' days';
-                                            ?>
-                                        </div>
-                                    </div>
+                                    <div class="task-title"><?php echo htmlspecialchars($leave['volunteer_name']); ?></div>
+                                    <div class="status-badge status-pending">Pending</div>
                                 </div>
                             </div>
                             
-                            <div class="volunteer-info">
+                            <div class="task-description">
                                 <?php echo htmlspecialchars(substr($leave['reason'], 0, 100)); ?>...
                             </div>
                             
-                            <div class="volunteer-actions mt-3">
+                            <div class="task-meta">
+                                <span><i class="fas fa-calendar"></i> 
+                                    <?php echo date('d M Y', strtotime($leave['start_date'])); ?> 
+                                    to 
+                                    <?php echo date('d M Y', strtotime($leave['end_date'])); ?>
+                                </span>
+                                <span><i class="fas fa-clock"></i> 
+                                    <?php 
+                                        $start = new DateTime($leave['start_date']);
+                                        $end = new DateTime($leave['end_date']);
+                                        $interval = $start->diff($end);
+                                        echo ($interval->days + 1) . ' days';
+                                    ?>
+                                </span>
+                            </div>
+                            
+                            <div class="task-actions">
                                 <button class="btn btn-sm btn-success" onclick="approveLeave(<?php echo $leave['id']; ?>)">
                                     <i class="fas fa-check"></i> Approve
                                 </button>
@@ -1708,24 +1788,40 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                     </span>
                 </div>
                 
-                <div class="alert-list">
+                <div class="task-list">
                     <?php while($alert = mysqli_fetch_assoc($alerts_result)): ?>
-                        <div class="alert-item <?php echo strtolower($alert['severity']); ?>">
-                            <div class="alert-icon">
-                                <i class="fas fa-exclamation-triangle"></i>
-                            </div>
-                            <div class="alert-content">
-                                <div class="alert-title"><?php echo htmlspecialchars($alert['title']); ?></div>
-                                <div class="alert-description">
-                                    <?php echo htmlspecialchars($alert['description']); ?>
-                                    <?php if($alert['volunteer_name']): ?>
-                                        • Volunteer: <?php echo htmlspecialchars($alert['volunteer_name']); ?>
-                                    <?php endif; ?>
+                        <div class="task-card <?php echo strtolower($alert['severity']); ?>">
+                            <div class="task-header">
+                                <div>
+                                    <div class="task-title"><?php echo htmlspecialchars($alert['title']); ?></div>
+                                    <div class="status-badge status-<?php echo strtolower($alert['status']); ?>">
+                                        <?php echo ucfirst($alert['status']); ?>
+                                    </div>
                                 </div>
                             </div>
-                            <button class="btn btn-sm btn-primary" onclick="handleAlert(<?php echo $alert['id']; ?>, 'resolved')">
-                                <i class="fas fa-check"></i> Resolve
-                            </button>
+                            
+                            <div class="task-description">
+                                <?php echo htmlspecialchars($alert['description']); ?>
+                                <?php if($alert['volunteer_name']): ?>
+                                    • Volunteer: <?php echo htmlspecialchars($alert['volunteer_name']); ?>
+                                <?php endif; ?>
+                            </div>
+                            
+                            <div class="task-meta">
+                                <?php if($alert['location_name']): ?>
+                                    <span><i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($alert['location_name']); ?></span>
+                                <?php endif; ?>
+                                <span><i class="fas fa-clock"></i> <?php echo date('h:i A', strtotime($alert['created_at'])); ?></span>
+                            </div>
+                            
+                            <div class="task-actions">
+                                <button class="btn btn-sm btn-primary" onclick="handleAlert(<?php echo $alert['id']; ?>, 'resolved')">
+                                    <i class="fas fa-check"></i> Resolve
+                                </button>
+                                <button class="btn btn-sm btn-outline" onclick="viewAlertLocation(<?php echo $alert['id']; ?>)">
+                                    <i class="fas fa-map-marked-alt"></i> View Location
+                                </button>
+                            </div>
                         </div>
                     <?php endwhile; ?>
                 </div>
@@ -1743,20 +1839,35 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                 </div>
                 
                 <?php if(mysqli_num_rows($leaderboard_result) > 0): ?>
-                    <div class="leaderboard">
+                    <div class="task-list">
                         <?php $rank = 1; ?>
                         <?php while($volunteer = mysqli_fetch_assoc($leaderboard_result)): ?>
-                            <div class="leaderboard-item">
-                                <div class="rank-number">#<?php echo $rank; ?></div>
-                                <div class="leaderboard-info">
-                                    <div class="leaderboard-name"><?php echo htmlspecialchars($volunteer['full_name']); ?></div>
-                                    <div class="leaderboard-email"><?php echo htmlspecialchars($volunteer['email']); ?></div>
-                                    <div class="leaderboard-stats">
-                                        <div class="stat-completed"><?php echo $volunteer['completed_tasks'] ?: 0; ?> tasks</div>
-                                        <div style="font-size: 0.85rem; color: var(--text-light);">
-                                            <?php echo $volunteer['total_tasks'] ?: 0; ?> total assigned
+                            <div class="task-card">
+                                <div class="task-header">
+                                    <div>
+                                        <div class="task-title">#<?php echo $rank; ?>. <?php echo htmlspecialchars($volunteer['full_name']); ?></div>
+                                        <div class="status-badge status-active">
+                                            <?php echo $volunteer['total_points']; ?> points
                                         </div>
                                     </div>
+                                </div>
+                                
+                                <div class="task-description">
+                                    <?php echo htmlspecialchars($volunteer['email']); ?>
+                                </div>
+                                
+                                <div class="task-meta">
+                                    <span><i class="fas fa-tasks"></i> <?php echo $volunteer['completed_tasks'] ?: 0; ?> tasks completed</span>
+                                    <span><i class="fas fa-star"></i> <?php echo $volunteer['total_points'] ?: 0; ?> total points</span>
+                                </div>
+                                
+                                <div class="task-actions">
+                                    <button class="btn btn-sm btn-outline" onclick="viewVolunteerDetails(<?php echo $volunteer['id']; ?>)">
+                                        <i class="fas fa-eye"></i> Profile
+                                    </button>
+                                    <button class="btn btn-sm btn-info" onclick="viewVolunteerLocation(<?php echo $volunteer['id']; ?>)">
+                                        <i class="fas fa-location-dot"></i> Track
+                                    </button>
                                 </div>
                             </div>
                             <?php $rank++; ?>
@@ -1791,9 +1902,39 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                         <textarea name="task_description" class="form-control" rows="3" required placeholder="Describe the task"></textarea>
                     </div>
                     
+                    <!-- Location Selection with Map -->
                     <div class="form-group">
-                        <label class="form-label">Location</label>
-                        <input type="text" name="task_location" class="form-control" required placeholder="Enter location or address">
+                        <label class="form-label">Task Location</label>
+                        <div style="margin-bottom: 10px;">
+                            <input type="text" name="task_location" id="task_location" class="form-control" 
+                                   required placeholder="Search or select on map">
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                            <div>
+                                <label class="form-label">Latitude</label>
+                                <input type="text" name="latitude" id="latitude" class="form-control" 
+                                       required placeholder="Click on map">
+                            </div>
+                            <div>
+                                <label class="form-label">Longitude</label>
+                                <input type="text" name="longitude" id="longitude" class="form-control" 
+                                       required placeholder="Click on map">
+                            </div>
+                        </div>
+                        
+                        <div class="mt-2">
+                            <label class="form-label">Geo-fence Radius (meters)</label>
+                            <input type="number" name="geofence_radius" class="form-control" 
+                                   value="100" min="50" max="1000">
+                            <small style="color: var(--text-light);">Volunteers must be within this radius to check in/out</small>
+                        </div>
+                    </div>
+                    
+                    <!-- Map Container -->
+                    <div class="form-group">
+                        <div id="taskMap" style="height: 300px; width: 100%; border-radius: var(--radius-sm); margin-top: 10px;"></div>
+                        <small style="color: var(--text-light);">Click on map to set task location</small>
                     </div>
                     
                     <div class="form-row">
@@ -1898,6 +2039,7 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                             <select name="notification_target" class="form-control" required>
                                 <option value="all">All Volunteers</option>
                                 <option value="active">Active Volunteers Only</option>
+                                <option value="specific">Specific Volunteer</option>
                             </select>
                         </div>
                     </div>
@@ -1952,17 +2094,73 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
         </div>
     </div>
 
+    <!-- View Location Modal -->
+    <div class="modal" id="locationModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-map-marker-alt"></i> Location Details</h2>
+                <button class="close-modal" onclick="closeLocationModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="locationMap" style="height: 400px;"></div>
+                <div id="locationDetails" class="mt-3">
+                    <h3 id="locationTitle"></h3>
+                    <p id="locationAddress"></p>
+                    <div class="task-meta" id="locationMeta"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Task Status Modal -->
+    <div class="modal" id="updateStatusModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-check-circle"></i> Update Task Status</h2>
+                <button class="close-modal" onclick="closeUpdateStatusModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="updateStatusForm" method="POST" action="admin_panel.php?action=update_task_status">
+                    <input type="hidden" name="task_id" id="updateTaskId">
+                    
+                    <div class="form-group">
+                        <label class="form-label">Status</label>
+                        <select name="status" class="form-control" required>
+                            <option value="pending">Pending</option>
+                            <option value="assigned">Assigned</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Notes (Optional)</label>
+                        <textarea name="notes" class="form-control" rows="3" placeholder="Add any notes..."></textarea>
+                    </div>
+                    
+                    <div style="display: flex; gap: 12px; margin-top: 24px;">
+                        <button type="submit" class="btn btn-primary" style="flex: 1;">
+                            <i class="fas fa-save"></i> Update Status
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="closeUpdateStatusModal()" style="flex: 1;">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Libraries -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    
     <script>
         // Modal Functions
         function openCreateTaskModal() {
             document.getElementById('createTaskModal').classList.add('active');
-            // Set default deadline to tomorrow
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            const deadlineInput = document.querySelector('input[name="deadline"]');
-            if (deadlineInput) {
-                deadlineInput.value = tomorrow.toISOString().slice(0, 16);
-            }
+            setTimeout(initTaskMap, 100);
         }
         
         function closeCreateTaskModal() {
@@ -1984,6 +2182,23 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
         
         function closeAssignTaskModal() {
             document.getElementById('assignTaskModal').classList.remove('active');
+        }
+        
+        function openLocationModal() {
+            document.getElementById('locationModal').classList.add('active');
+        }
+        
+        function closeLocationModal() {
+            document.getElementById('locationModal').classList.remove('active');
+        }
+        
+        function updateTaskStatusModal(taskId) {
+            document.getElementById('updateTaskId').value = taskId;
+            document.getElementById('updateStatusModal').classList.add('active');
+        }
+        
+        function closeUpdateStatusModal() {
+            document.getElementById('updateStatusModal').classList.remove('active');
         }
         
         // Close modals when clicking outside
@@ -2030,6 +2245,12 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
             }
         }
         
+        function handleAlert(alertId, action) {
+            if (confirm(`Are you sure you want to mark this alert as ${action}?`)) {
+                window.location.href = `admin_panel.php?action=update_alert_status&id=${alertId}&status=${action}`;
+            }
+        }
+        
         function viewVolunteerDetails(volunteerId) {
             fetch(`admin_panel.php?action=view_volunteer&id=${volunteerId}`)
                 .then(response => response.json())
@@ -2039,6 +2260,7 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
                     if (data.education) message += `\nEducation: ${data.education}`;
                     if (data.total_tasks) message += `\nTotal Tasks: ${data.total_tasks}`;
                     if (data.completed_tasks) message += `\nCompleted Tasks: ${data.completed_tasks}`;
+                    if (data.total_points) message += `\nPoints: ${data.total_points}`;
                     alert(message);
                 });
         }
@@ -2047,21 +2269,175 @@ $leaderboard_result = mysqli_query($conn, $leaderboard_sql);
             fetch(`admin_panel.php?action=view_task&id=${taskId}`)
                 .then(response => response.json())
                 .then(data => {
-                    let message = `Task Details:\nTitle: ${data.title}\nDescription: ${data.description}\nLocation: ${data.location}\nCategory: ${data.category}\nUrgency: ${data.urgency}\nPriority: ${data.priority}\nStatus: ${data.status}`;
+                    let message = `Task Details:\nTitle: ${data.title}\nDescription: ${data.description}\nLocation: ${data.location_name}\nCategory: ${data.task_category}\nUrgency: ${data.task_urgency}\nPriority: ${data.task_priority}\nStatus: ${data.status}`;
                     if (data.volunteer_name) {
                         message += `\nAssigned to: ${data.volunteer_name} (${data.volunteer_email})`;
                     }
                     if (data.deadline) {
                         message += `\nDeadline: ${new Date(data.deadline).toLocaleString()}`;
                     }
+                    if (data.latitude && data.longitude) {
+                        message += `\nLocation: ${data.latitude}, ${data.longitude}`;
+                    }
                     alert(message);
                 });
         }
         
-        function handleAlert(alertId, action) {
-            if (confirm(`Are you sure you want to mark this alert as ${action}?`)) {
-                window.location.href = `admin_panel.php?action=update_alert_status&id=${alertId}&status=${action}`;
+        function viewVolunteerLocation(volunteerId) {
+            fetch(`admin_panel.php?action=view_live_location&id=${volunteerId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.latitude && data.longitude) {
+                        showLocationOnMap(
+                            data.latitude, 
+                            data.longitude, 
+                            `${data.full_name}'s Location`,
+                            `${data.email}<br>Last updated: ${data.timestamp || 'Unknown'}`
+                        );
+                    } else {
+                        alert('No location data available for this volunteer.');
+                    }
+                });
+        }
+        
+        function viewAlertLocation(alertId) {
+            // This would fetch alert location from database
+            alert('Alert location viewing feature coming soon!');
+        }
+        
+        // Map functionality for create task modal
+        let taskMap;
+        let taskMarker;
+        
+        function initTaskMap() {
+            // Default to a central location
+            const defaultLat = 20.5937;
+            const defaultLng = 78.9629;
+            
+            if (!taskMap) {
+                taskMap = L.map('taskMap').setView([defaultLat, defaultLng], 13);
+                
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors'
+                }).addTo(taskMap);
+                
+                // Add geocoder control
+                L.Control.geocoder({
+                    defaultMarkGeocode: false
+                }).on('markgeocode', function(e) {
+                    const latlng = e.geocode.center;
+                    taskMap.setView(latlng, 15);
+                    updateTaskLocation(latlng.lat, latlng.lng, e.geocode.name);
+                }).addTo(taskMap);
+                
+                // Click handler to set location
+                taskMap.on('click', function(e) {
+                    const lat = e.latlng.lat;
+                    const lng = e.latlng.lng;
+                    updateTaskLocation(lat, lng);
+                });
+            } else {
+                taskMap.invalidateSize();
             }
+            
+            // Set default deadline to tomorrow
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const deadlineInput = document.querySelector('input[name="deadline"]');
+            if (deadlineInput) {
+                deadlineInput.value = tomorrow.toISOString().slice(0, 16);
+            }
+        }
+        
+        function updateTaskLocation(lat, lng, address = null) {
+            // Update form fields
+            document.getElementById('latitude').value = lat.toFixed(6);
+            document.getElementById('longitude').value = lng.toFixed(6);
+            
+            if (address) {
+                document.getElementById('task_location').value = address;
+            } else {
+                // Reverse geocode to get address
+                reverseGeocode(lat, lng);
+            }
+            
+            // Update or add marker
+            if (taskMarker) {
+                taskMarker.setLatLng([lat, lng]);
+            } else {
+                taskMarker = L.marker([lat, lng], {
+                    draggable: true,
+                    icon: L.divIcon({
+                        html: '<i class="fas fa-map-marker-alt" style="color: var(--secondary); font-size: 24px;"></i>',
+                        className: 'task-marker',
+                        iconSize: [40, 40]
+                    })
+                }).addTo(taskMap);
+                
+                // Update on drag
+                taskMarker.on('dragend', function(e) {
+                    const pos = taskMarker.getLatLng();
+                    updateTaskLocation(pos.lat, pos.lng);
+                });
+            }
+        }
+        
+        function reverseGeocode(lat, lng) {
+            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.display_name) {
+                        document.getElementById('task_location').value = data.display_name;
+                    }
+                })
+                .catch(error => console.error('Geocoding error:', error));
+        }
+        
+        // Location map for viewing locations
+        let locationMap;
+        let locationMarker;
+        
+        function showLocationOnMap(lat, lng, title, description) {
+            openLocationModal();
+            
+            setTimeout(() => {
+                if (!locationMap) {
+                    locationMap = L.map('locationMap').setView([lat, lng], 15);
+                    
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '© OpenStreetMap contributors'
+                    }).addTo(locationMap);
+                } else {
+                    locationMap.setView([lat, lng], 15);
+                }
+                
+                // Clear existing marker
+                if (locationMarker) {
+                    locationMap.removeLayer(locationMarker);
+                }
+                
+                // Add new marker
+                locationMarker = L.marker([lat, lng], {
+                    icon: L.divIcon({
+                        html: '<i class="fas fa-user" style="color: var(--primary); font-size: 24px;"></i>',
+                        className: 'volunteer-marker',
+                        iconSize: [40, 40]
+                    })
+                }).addTo(locationMap);
+                
+                // Add popup
+                locationMarker.bindPopup(`<b>${title}</b><br>${description}`).openPopup();
+                
+                // Update details
+                document.getElementById('locationTitle').textContent = title;
+                document.getElementById('locationAddress').innerHTML = description;
+                document.getElementById('locationMeta').innerHTML = `
+                    <span><i class="fas fa-location-dot"></i> ${lat.toFixed(6)}, ${lng.toFixed(6)}</span>
+                    <span><i class="fas fa-clock"></i> ${new Date().toLocaleTimeString()}</span>
+                `;
+                
+                locationMap.invalidateSize();
+            }, 100);
         }
         
         // Initialize on page load

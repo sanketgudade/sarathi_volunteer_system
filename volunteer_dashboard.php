@@ -18,124 +18,133 @@ $today_task_sql = "SELECT t.*, a.username as assigned_by
                    FROM tasks t 
                    LEFT JOIN admins a ON t.admin_id = a.id 
                    WHERE t.assigned_to = ? 
-                   AND DATE(t.created_at) = CURDATE() 
-                   ORDER BY t.id DESC 
+                   AND t.status IN ('assigned', 'in_progress')
+                   ORDER BY t.deadline ASC 
                    LIMIT 1";
 $today_stmt = mysqli_prepare($conn, $today_task_sql);
-if (!$today_stmt) {
-    die("Prepare failed: " . mysqli_error($conn));
-}
 mysqli_stmt_bind_param($today_stmt, "i", $volunteer_id);
-if (!mysqli_stmt_execute($today_stmt)) {
-    die("Execute failed: " . mysqli_stmt_error($today_stmt));
-}
+mysqli_stmt_execute($today_stmt);
 $today_result = mysqli_stmt_get_result($today_stmt);
 $today_task_data = mysqli_fetch_assoc($today_result);
 
-// If created_at doesn't exist or no tasks today, try without date filter
-if (!$today_task_data) {
-    // Try getting any assigned task
-    $today_task_sql2 = "SELECT t.*, a.username as assigned_by 
-                       FROM tasks t 
-                       LEFT JOIN admins a ON t.admin_id = a.id 
-                       WHERE t.assigned_to = ? 
-                       AND t.status IN ('assigned', 'in_progress')
-                       ORDER BY t.id DESC 
-                       LIMIT 1";
-    $today_stmt2 = mysqli_prepare($conn, $today_task_sql2);
-    if ($today_stmt2) {
-        mysqli_stmt_bind_param($today_stmt2, "i", $volunteer_id);
-        if (mysqli_stmt_execute($today_stmt2)) {
-            $today_result2 = mysqli_stmt_get_result($today_stmt2);
-            $today_task_data = mysqli_fetch_assoc($today_result2);
-        }
-        mysqli_stmt_close($today_stmt2);
-    }
-}
-
-// Get today's attendance status - using volunteer_checkins table
-$attendance_sql = "SELECT * FROM volunteer_checkins 
+// Get today's attendance
+$attendance_sql = "SELECT * FROM volunteer_attendance 
                    WHERE volunteer_id = ? 
-                   AND DATE(checkin_time) = CURDATE() 
+                   AND DATE(check_in_time) = CURDATE() 
                    ORDER BY id DESC 
                    LIMIT 1";
 $attendance_stmt = mysqli_prepare($conn, $attendance_sql);
-if (!$attendance_stmt) {
-    die("Prepare failed: " . mysqli_error($conn));
-}
 mysqli_stmt_bind_param($attendance_stmt, "i", $volunteer_id);
-if (!mysqli_stmt_execute($attendance_stmt)) {
-    die("Execute failed: " . mysqli_stmt_error($attendance_stmt));
-}
+mysqli_stmt_execute($attendance_stmt);
 $attendance_result = mysqli_stmt_get_result($attendance_stmt);
 $attendance_data = mysqli_fetch_assoc($attendance_result);
 
-// Close previous statement before next query
-if (isset($today_stmt)) mysqli_stmt_close($today_stmt);
-
-// Get pending leave requests - using volunteer_leave_requests table
-$leave_sql = "SELECT * FROM volunteer_leave_requests 
+// Get pending leave requests
+$leave_sql = "SELECT * FROM leave_requests 
               WHERE volunteer_id = ? 
               AND status = 'pending' 
               ORDER BY id DESC 
               LIMIT 1";
 $leave_stmt = mysqli_prepare($conn, $leave_sql);
-if (!$leave_stmt) {
-    die("Prepare failed: " . mysqli_error($conn));
-}
 mysqli_stmt_bind_param($leave_stmt, "i", $volunteer_id);
-if (!mysqli_stmt_execute($leave_stmt)) {
-    die("Execute failed: " . mysqli_stmt_error($leave_stmt));
-}
+mysqli_stmt_execute($leave_stmt);
 $leave_result = mysqli_stmt_get_result($leave_stmt);
 $leave_data = mysqli_fetch_assoc($leave_result);
 
-// Close previous statement
-if (isset($attendance_stmt)) mysqli_stmt_close($attendance_stmt);
-
-// Get recent reports - using volunteer_reports table
-$reports_sql = "SELECT * FROM volunteer_reports 
-                WHERE volunteer_id = ? 
-                ORDER BY id DESC 
+// Get recent reports
+$reports_sql = "SELECT dr.*, t.title as task_title 
+                FROM daily_reports dr
+                LEFT JOIN tasks t ON dr.task_id = t.id
+                WHERE dr.volunteer_id = ? 
+                ORDER BY dr.submitted_at DESC 
                 LIMIT 3";
 $reports_stmt = mysqli_prepare($conn, $reports_sql);
-if (!$reports_stmt) {
-    die("Prepare failed: " . mysqli_error($conn));
-}
 mysqli_stmt_bind_param($reports_stmt, "i", $volunteer_id);
-if (!mysqli_stmt_execute($reports_stmt)) {
-    die("Execute failed: " . mysqli_stmt_error($reports_stmt));
-}
+mysqli_stmt_execute($reports_stmt);
 $reports_result = mysqli_stmt_get_result($reports_stmt);
 $reports_data = [];
 while($row = mysqli_fetch_assoc($reports_result)) {
     $reports_data[] = $row;
 }
 
-// Close previous statement
-if (isset($leave_stmt)) mysqli_stmt_close($leave_stmt);
-
 // Get volunteer stats
 $stats_sql = "SELECT 
     (SELECT COUNT(*) FROM tasks WHERE assigned_to = ? AND status = 'completed') as completed_tasks,
     (SELECT COUNT(*) FROM tasks WHERE assigned_to = ? AND status IN ('assigned', 'in_progress')) as pending_tasks,
-    (SELECT COUNT(*) FROM volunteer_checkins WHERE volunteer_id = ?) as total_checkins";
+    (SELECT COUNT(*) FROM volunteer_attendance WHERE volunteer_id = ?) as total_checkins,
+    v.total_points,
+    v.current_rank,
+    v.tasks_completed
+    FROM volunteers v WHERE v.id = ?";
 $stats_stmt = mysqli_prepare($conn, $stats_sql);
-if (!$stats_stmt) {
-    die("Prepare failed: " . mysqli_error($conn));
-}
-mysqli_stmt_bind_param($stats_stmt, "iii", $volunteer_id, $volunteer_id, $volunteer_id);
-if (!mysqli_stmt_execute($stats_stmt)) {
-    die("Execute failed: " . mysqli_stmt_error($stats_stmt));
-}
+mysqli_stmt_bind_param($stats_stmt, "iiii", 
+    $volunteer_id,
+    $volunteer_id,
+    $volunteer_id,
+    $volunteer_id
+);
+mysqli_stmt_execute($stats_stmt);
 $stats_result = mysqli_stmt_get_result($stats_stmt);
 $stats_data = mysqli_fetch_assoc($stats_result);
 
-// Close statements
-if (isset($reports_stmt)) mysqli_stmt_close($reports_stmt);
-if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
-?>
+// Get volunteer rank
+$rank_sql = "SELECT current_rank as rank FROM volunteers WHERE id = ?";
+$rank_stmt = mysqli_prepare($conn, $rank_sql);
+mysqli_stmt_bind_param($rank_stmt, "i", $volunteer_id);
+mysqli_stmt_execute($rank_stmt);
+$rank_result = mysqli_stmt_get_result($rank_stmt);
+$rank_data = mysqli_fetch_assoc($rank_result);
 
+// Get notifications
+$notifications_sql = "SELECT * FROM notifications 
+                      WHERE target IN ('all', 'active', CONCAT('volunteer_', ?))
+                      ORDER BY created_at DESC 
+                      LIMIT 5";
+$notifications_stmt = mysqli_prepare($conn, $notifications_sql);
+mysqli_stmt_bind_param($notifications_stmt, "i", $volunteer_id);
+mysqli_stmt_execute($notifications_stmt);
+$notifications_result = mysqli_stmt_get_result($notifications_stmt);
+$notifications_data = [];
+while($row = mysqli_fetch_assoc($notifications_result)) {
+    $notifications_data[] = $row;
+}
+
+// Get volunteer's latest location
+$location_sql = "SELECT last_location_lat as latitude, 
+                        last_location_lng as longitude,
+                        location_updated_at as timestamp
+                 FROM volunteers 
+                 WHERE id = ? 
+                 AND last_location_lat IS NOT NULL 
+                 AND last_location_lng IS NOT NULL";
+$location_stmt = mysqli_prepare($conn, $location_sql);
+mysqli_stmt_bind_param($location_stmt, "i", $volunteer_id);
+mysqli_stmt_execute($location_stmt);
+$location_result = mysqli_stmt_get_result($location_stmt);
+$location_data = mysqli_fetch_assoc($location_result);
+
+// Get leave history
+$leave_history_sql = "SELECT * FROM leave_requests 
+                      WHERE volunteer_id = ? 
+                      ORDER BY id DESC 
+                      LIMIT 5";
+$leave_history_stmt = mysqli_prepare($conn, $leave_history_sql);
+mysqli_stmt_bind_param($leave_history_stmt, "i", $volunteer_id);
+mysqli_stmt_execute($leave_history_stmt);
+$leave_history_result = mysqli_stmt_get_result($leave_history_stmt);
+$leave_history_data = [];
+while($row = mysqli_fetch_assoc($leave_history_result)) {
+    $leave_history_data[] = $row;
+}
+
+// Debugging - uncomment if needed
+// echo "<pre>";
+// echo "Stats SQL: " . htmlspecialchars($stats_sql) . "\n";
+// echo "Volunteer ID: $volunteer_id\n";
+// echo "Stats Data: ";
+// print_r($stats_data);
+// echo "</pre>";
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -144,6 +153,10 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
     <title>Volunteer Dashboard - Sarathi Field Management</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS for Maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Flatpickr for date picker -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <style>
         /* ===== CLEAN COLOR PALETTE ===== */
         :root {
@@ -319,6 +332,17 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             transform: translateY(-2px);
         }
 
+        .btn-info {
+            background: #0ea5e9;
+            color: white;
+            border: 2px solid #0ea5e9;
+        }
+
+        .btn-info:hover {
+            background: #0284c7;
+            transform: translateY(-2px);
+        }
+
         .btn-sm {
             padding: 8px 16px;
             font-size: 0.85rem;
@@ -345,9 +369,8 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             background: linear-gradient(135deg, var(--primary), var(--accent));
             color: white;
             border-radius: var(--radius);
-            padding: 40px;
+            padding: 30px;
             margin-bottom: 30px;
-            text-align: center;
             position: relative;
             overflow: hidden;
         }
@@ -365,13 +388,14 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
         }
 
         .welcome-banner h2 {
-            font-size: 2rem;
+            font-size: 1.8rem;
             margin-bottom: 10px;
         }
 
         .welcome-banner p {
-            font-size: 1.1rem;
+            font-size: 1rem;
             opacity: 0.9;
+            max-width: 600px;
         }
 
         /* ===== STATS CARDS ===== */
@@ -434,7 +458,7 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
         .feature-card {
             background: white;
             border-radius: var(--radius);
-            padding: 30px;
+            padding: 24px;
             border: 1px solid var(--border);
             transition: all 0.3s ease;
             height: 100%;
@@ -460,6 +484,8 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             align-items: center;
             gap: 16px;
             margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
         }
 
         .feature-icon {
@@ -518,6 +544,11 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
         .status-in-progress { background: #dbeafe; color: var(--primary); }
         .status-assigned { background: #dbeafe; color: var(--primary); }
         .status-completed { background: #dcfce7; color: var(--secondary); }
+        .status-present { background: #dcfce7; color: var(--secondary); }
+        .status-absent { background: #fee2e2; color: var(--danger); }
+        .status-approved { background: #dcfce7; color: var(--secondary); }
+        .status-rejected { background: #fee2e2; color: var(--danger); }
+        .status-pending { background: #fef3c7; color: #d97706; }
 
         /* ===== ATTENDANCE CARD ===== */
         .attendance-status {
@@ -558,46 +589,40 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             margin-right: 8px;
         }
 
-        /* ===== LEAVE CARD ===== */
-        .leave-status {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .leave-indicator {
-            display: inline-block;
-            padding: 8px 16px;
+        /* ===== MAP STYLES ===== */
+        #taskLocationMap, #reportMap {
+            height: 250px;
+            width: 100%;
             border-radius: var(--radius-sm);
-            font-weight: 600;
-            margin-top: 10px;
+            margin: 15px 0;
+            border: 1px solid var(--border);
         }
 
-        .leave-pending { background: #fef3c7; color: #d97706; }
-        .leave-approved { background: #dcfce7; color: var(--secondary); }
-        .leave-rejected { background: #fee2e2; color: var(--danger); }
+        .leaflet-container {
+            font-family: 'Nunito', sans-serif;
+        }
 
-        /* ===== REPORTS CARD ===== */
-        .reports-list {
+        /* ===== NOTIFICATIONS ===== */
+        .notifications-list {
             display: grid;
             gap: 12px;
         }
 
-        .report-item {
+        .notification-item {
             background: var(--light-bg);
             border-radius: var(--radius-sm);
             padding: 16px;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 12px;
             transition: all 0.3s ease;
         }
 
-        .report-item:hover {
+        .notification-item:hover {
             background: #e2e8f0;
-            transform: translateX(4px);
         }
 
-        .report-icon {
+        .notification-icon {
             width: 40px;
             height: 40px;
             background: var(--primary);
@@ -609,86 +634,14 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             font-size: 16px;
         }
 
-        .report-content {
+        .notification-content {
             flex: 1;
         }
 
-        .report-date {
-            font-size: 0.85rem;
+        .notification-time {
+            font-size: 0.8rem;
             color: var(--text-light);
             margin-top: 4px;
-        }
-
-        /* ===== EMERGENCY CARD ===== */
-        .emergency-card {
-            background: linear-gradient(135deg, #ef4444, #dc2626);
-            color: white;
-            border-radius: var(--radius);
-            padding: 30px;
-            text-align: center;
-            transition: all 0.3s ease;
-        }
-
-        .emergency-card:hover {
-            transform: scale(1.02);
-            box-shadow: 0 0 30px rgba(239, 68, 68, 0.3);
-        }
-
-        .emergency-icon {
-            font-size: 48px;
-            margin-bottom: 20px;
-        }
-
-        .emergency-btn {
-            background: white;
-            color: var(--danger);
-            padding: 16px 32px;
-            font-size: 1.1rem;
-            font-weight: 700;
-            border-radius: var(--radius-sm);
-            margin-top: 20px;
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-            transition: all 0.3s ease;
-        }
-
-        .emergency-btn:hover {
-            background: #f1f5f9;
-            transform: translateY(-2px);
-        }
-
-        /* ===== PROFILE CARD ===== */
-        .profile-info {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-
-        .profile-avatar {
-            width: 80px;
-            height: 80px;
-            background: linear-gradient(135deg, var(--primary), var(--accent));
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 32px;
-        }
-
-        .profile-details {
-            flex: 1;
-        }
-
-        .profile-details h4 {
-            margin-bottom: 8px;
-        }
-
-        .profile-details p {
-            color: var(--text-light);
-            margin-bottom: 4px;
         }
 
         /* ===== MODALS ===== */
@@ -727,7 +680,7 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             background: white;
             border-radius: var(--radius);
             width: 100%;
-            max-width: 500px;
+            max-width: 600px;
             max-height: 90vh;
             overflow-y: auto;
             box-shadow: var(--shadow-hover);
@@ -802,6 +755,90 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             resize: vertical;
         }
 
+        .form-select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 1rem;
+            font-family: 'Nunito', sans-serif;
+            transition: all 0.3s ease;
+            background: var(--light-bg);
+            cursor: pointer;
+        }
+
+        .form-select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+            background: white;
+        }
+
+        /* ===== LEAVE HISTORY TABLE ===== */
+        .leave-history {
+            margin-top: 20px;
+        }
+
+        .leave-history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: var(--light-bg);
+            border-radius: var(--radius-sm);
+            margin-bottom: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .leave-history-date {
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .leave-history-reason {
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        /* ===== EMERGENCY CARD ===== */
+        .emergency-card {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            border-radius: var(--radius);
+            padding: 30px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .emergency-card:hover {
+            transform: scale(1.02);
+            box-shadow: 0 0 30px rgba(239, 68, 68, 0.3);
+        }
+
+        .emergency-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .emergency-btn {
+            background: white;
+            color: var(--danger);
+            padding: 16px 32px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            border-radius: var(--radius-sm);
+            margin-top: 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .emergency-btn:hover {
+            background: #f1f5f9;
+            transform: translateY(-2px);
+        }
+
         /* ===== FOOTER ===== */
         .volunteer-footer {
             background: white;
@@ -842,7 +879,7 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             }
             
             .welcome-banner {
-                padding: 30px 20px;
+                padding: 24px;
             }
             
             .welcome-banner h2 {
@@ -850,7 +887,13 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             }
             
             .feature-card {
-                padding: 24px;
+                padding: 20px;
+            }
+            
+            .leave-history-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
             }
         }
 
@@ -878,11 +921,6 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             .stats-grid {
                 grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             }
-            
-            .profile-info {
-                flex-direction: column;
-                text-align: center;
-            }
         }
 
         /* ===== UTILITY CLASSES ===== */
@@ -901,6 +939,7 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
         .gap-2 { gap: 8px; }
         .gap-3 { gap: 12px; }
         .gap-4 { gap: 16px; }
+        .w-full { width: 100%; }
     </style>
 </head>
 <body>
@@ -924,6 +963,12 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                         <div style="font-size: 0.85rem; color: var(--text-light);"><?php echo htmlspecialchars($email); ?></div>
                     </div>
                 </div>
+                
+                <!-- Leave Request Button -->
+                <button class="btn btn-info" onclick="openLeaveModal()">
+                    <i class="fas fa-calendar-plus"></i> Leave Request
+                </button>
+                
                 <form method="POST" action="logout.php" style="display: inline;">
                     <button type="submit" class="btn btn-danger">
                         <i class="fas fa-sign-out-alt"></i> Logout
@@ -939,7 +984,21 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             <!-- Welcome Banner -->
             <div class="welcome-banner">
                 <h2>Welcome back, <?php echo explode(' ', $name)[0]; ?>! 👋</h2>
-                <p>Ready to make a difference today? Check your tasks and mark your attendance.</p>
+                <p>Ready to make a difference today? Check your assigned tasks and mark your attendance.</p>
+                <div style="display: flex; gap: 15px; margin-top: 20px; flex-wrap: wrap;">
+                    <div style="background: rgba(255,255,255,0.2); padding: 10px 20px; border-radius: var(--radius-sm);">
+                        <div style="font-size: 1.5rem; font-weight: 700;">#<?php echo $rank_data['rank'] ?? 'N/A'; ?></div>
+                        <div style="font-size: 0.9rem;">Your Rank</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.2); padding: 10px 20px; border-radius: var(--radius-sm);">
+                        <div style="font-size: 1.5rem; font-weight: 700;"><?php echo $stats_data['total_points'] ?? 0; ?></div>
+                        <div style="font-size: 0.9rem;">Points</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.2); padding: 10px 20px; border-radius: var(--radius-sm);">
+                        <div style="font-size: 1.5rem; font-weight: 700;"><?php echo $stats_data['tasks_completed'] ?? 0; ?></div>
+                        <div style="font-size: 0.9rem;">Tasks Completed</div>
+                    </div>
+                </div>
             </div>
 
             <!-- Stats Grid -->
@@ -948,7 +1007,7 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                     <div class="stat-icon">
                         <i class="fas fa-tasks"></i>
                     </div>
-                    <div class="stat-number"><?php echo $stats_data['completed_tasks'] ?: 0; ?></div>
+                    <div class="stat-number"><?php echo $stats_data['completed_tasks'] ?? 0; ?></div>
                     <div class="stat-label">Tasks Completed</div>
                 </div>
                 
@@ -956,7 +1015,7 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                     <div class="stat-icon">
                         <i class="fas fa-clock"></i>
                     </div>
-                    <div class="stat-number"><?php echo $stats_data['pending_tasks'] ?: 0; ?></div>
+                    <div class="stat-number"><?php echo $stats_data['pending_tasks'] ?? 0; ?></div>
                     <div class="stat-label">Active Tasks</div>
                 </div>
                 
@@ -964,8 +1023,16 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                     <div class="stat-icon">
                         <i class="fas fa-calendar-check"></i>
                     </div>
-                    <div class="stat-number"><?php echo $stats_data['total_checkins'] ?: 0; ?></div>
+                    <div class="stat-number"><?php echo $stats_data['total_checkins'] ?? 0; ?></div>
                     <div class="stat-label">Total Check-ins</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-star"></i>
+                    </div>
+                    <div class="stat-number"><?php echo $stats_data['total_points'] ?? 0; ?></div>
+                    <div class="stat-label">Total Points</div>
                 </div>
             </div>
 
@@ -986,19 +1053,21 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                         <div class="task-info">
                             <div class="task-item">
                                 <i class="fas fa-tag"></i>
-                                <span><?php echo htmlspecialchars($today_task_data['title']); ?></span>
+                                <span style="font-weight: 600;"><?php echo htmlspecialchars($today_task_data['title']); ?></span>
                             </div>
+                            <?php if($today_task_data['assigned_by']): ?>
                             <div class="task-item">
                                 <i class="fas fa-user-tie"></i>
                                 <span>Assigned by: <?php echo htmlspecialchars($today_task_data['assigned_by']); ?></span>
                             </div>
+                            <?php endif; ?>
                             <div class="task-item">
                                 <i class="fas fa-map-marker-alt"></i>
                                 <span><?php echo htmlspecialchars($today_task_data['location_name']); ?></span>
                             </div>
                             <div class="task-item">
                                 <i class="fas fa-calendar"></i>
-                                <span>Deadline: <?php echo date('d M Y', strtotime($today_task_data['deadline'])); ?></span>
+                                <span>Deadline: <?php echo date('d M Y, h:i A', strtotime($today_task_data['deadline'])); ?></span>
                             </div>
                         </div>
                         
@@ -1006,10 +1075,50 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                             <?php echo ucfirst(str_replace('_', ' ', $today_task_data['status'])); ?>
                         </span>
                         
-                        <div class="mt-3">
+                        <!-- Task Location Map -->
+                        <?php if($today_task_data['latitude'] && $today_task_data['longitude']): ?>
+                        <div id="taskLocationMap" style="height: 200px; margin: 15px 0;"></div>
+                        <script>
+                            document.addEventListener('DOMContentLoaded', function() {
+                                const taskLat = <?php echo $today_task_data['latitude']; ?>;
+                                const taskLng = <?php echo $today_task_data['longitude']; ?>;
+                                const taskMap = L.map('taskLocationMap').setView([taskLat, taskLng], 15);
+                                
+                                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                                    attribution: '© OpenStreetMap contributors'
+                                }).addTo(taskMap);
+                                
+                                L.marker([taskLat, taskLng], {
+                                    icon: L.divIcon({
+                                        html: '<i class="fas fa-map-marker-alt" style="color: var(--secondary); font-size: 24px;"></i>',
+                                        className: 'task-marker'
+                                    })
+                                }).addTo(taskMap)
+                                  .bindPopup('Task Location: <?php echo addslashes($today_task_data["location_name"]); ?>')
+                                  .openPopup();
+                                  
+                                L.circle([taskLat, taskLng], {
+                                    color: 'var(--primary)',
+                                    fillColor: 'var(--primary)',
+                                    fillOpacity: 0.1,
+                                    radius: <?php echo $today_task_data['geofence_radius'] ?? 100; ?>
+                                }).addTo(taskMap);
+                            });
+                        </script>
+                        <?php endif; ?>
+                        
+                        <div class="task-actions mt-3" style="display: flex; gap: 10px; flex-wrap: wrap;">
                             <button class="btn btn-primary" onclick="openTaskModal()">
-                                <i class="fas fa-eye"></i> View Task Details
+                                <i class="fas fa-eye"></i> View Details
                             </button>
+                            <button class="btn btn-success" onclick="openReportModal()">
+                                <i class="fas fa-file-upload"></i> Submit Report
+                            </button>
+                            <?php if($today_task_data['latitude'] && $today_task_data['longitude']): ?>
+                            <button class="btn btn-info" onclick="openDirectionsModal()">
+                                <i class="fas fa-directions"></i> Get Directions
+                            </button>
+                            <?php endif; ?>
                         </div>
                     <?php else: ?>
                         <div style="text-align: center; padding: 30px 0; color: var(--text-light);">
@@ -1021,114 +1130,228 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                 </div>
 
                 <!-- Attendance Card -->
-               <!-- Attendance Card -->
-<div class="feature-card">
-    <div class="feature-header">
-        <div class="feature-icon">
-            <i class="fas fa-fingerprint"></i>
-        </div>
-        <div>
-            <h3 class="feature-title">Attendance</h3>
-        </div>
-    </div>
-    
-    <?php 
-    // Get today's attendance with check-in/out
-    $attendance_sql = "SELECT * FROM volunteer_attendance 
-                       WHERE volunteer_id = ? 
-                       AND DATE(check_in_time) = CURDATE() 
-                       ORDER BY id DESC LIMIT 1";
-    $attendance_stmt = mysqli_prepare($conn, $attendance_sql);
-    mysqli_stmt_bind_param($attendance_stmt, "i", $volunteer_id);
-    mysqli_stmt_execute($attendance_stmt);
-    $attendance_data = mysqli_fetch_assoc(mysqli_stmt_get_result($attendance_stmt));
-    ?>
-    
-    <div class="attendance-status">
-        <?php if($attendance_data): ?>
-            <?php if($attendance_data['check_out_time']): ?>
-                <div class="attendance-indicator present">
-                    <i class="fas fa-check-double"></i>
-                </div>
-                <h4>Checked Out</h4>
-                <p style="color: var(--text-light);">
-                    In: <?php echo date('h:i A', strtotime($attendance_data['check_in_time'])); ?><br>
-                    Out: <?php echo date('h:i A', strtotime($attendance_data['check_out_time'])); ?>
-                </p>
-            <?php else: ?>
-                <div class="attendance-indicator present">
-                    <i class="fas fa-check"></i>
-                </div>
-                <h4>Checked In</h4>
-                <p style="color: var(--text-light);">
-                    At: <?php echo date('h:i A', strtotime($attendance_data['check_in_time'])); ?>
-                </p>
-            <?php endif; ?>
-            
-            <p style="color: var(--text-light); font-size: 0.9rem;">
-                Location: <?php echo htmlspecialchars($attendance_data['location_name'] ?? 'Recorded'); ?>
-            </p>
-        <?php else: ?>
-            <div class="attendance-indicator absent">
-                <i class="fas fa-clock"></i>
-            </div>
-            <h4>Not Checked In</h4>
-            <p style="color: var(--text-light);">Mark your attendance for today</p>
-        <?php endif; ?>
-    </div>
-    
-    <div class="location-info">
-        <i class="fas fa-info-circle"></i>
-        <span style="font-size: 0.9rem;">
-            Must be within 100m of task location for check-in/out
-        </span>
-    </div>
-    
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-        <?php if(!$attendance_data): ?>
-            <button class="btn btn-success" onclick="checkInOut('check_in')">
-                <i class="fas fa-sign-in-alt"></i> Check In
-            </button>
-        <?php elseif(!$attendance_data['check_out_time']): ?>
-            <button class="btn btn-warning" onclick="checkInOut('check_out')">
-                <i class="fas fa-sign-out-alt"></i> Check Out
-            </button>
-        <?php else: ?>
-            <button class="btn btn-outline" disabled style="width: 100%;">
-                <i class="fas fa-check-circle"></i> Day Completed
-            </button>
-        <?php endif; ?>
-    </div>
-</div>
-
-                <!-- Leave Request Card -->
                 <div class="feature-card">
                     <div class="feature-header">
                         <div class="feature-icon">
-                            <i class="fas fa-calendar-alt"></i>
+                            <i class="fas fa-fingerprint"></i>
                         </div>
                         <div>
-                            <h3 class="feature-title">Leave Request</h3>
+                            <h3 class="feature-title">Attendance</h3>
+                        </div>
+                    </div>
+                    
+                    <div class="attendance-status">
+                        <?php if($attendance_data): ?>
+                            <?php if($attendance_data['check_out_time']): ?>
+                                <div class="attendance-indicator present">
+                                    <i class="fas fa-check-double"></i>
+                                </div>
+                                <h4>Checked Out</h4>
+                                <p style="color: var(--text-light);">
+                                    In: <?php echo date('h:i A', strtotime($attendance_data['check_in_time'])); ?><br>
+                                    Out: <?php echo date('h:i A', strtotime($attendance_data['check_out_time'])); ?>
+                                </p>
+                            <?php else: ?>
+                                <div class="attendance-indicator present">
+                                    <i class="fas fa-check"></i>
+                                </div>
+                                <h4>Checked In</h4>
+                                <p style="color: var(--text-light);">
+                                    At: <?php echo date('h:i A', strtotime($attendance_data['check_in_time'])); ?>
+                                </p>
+                            <?php endif; ?>
+                            
+                            <p style="color: var(--text-light); font-size: 0.9rem;">
+                                Location: <?php echo htmlspecialchars($attendance_data['location_name'] ?? 'Recorded'); ?>
+                            </p>
+                        <?php else: ?>
+                            <div class="attendance-indicator absent">
+                                <i class="fas fa-clock"></i>
+                            </div>
+                            <h4>Not Checked In</h4>
+                            <p style="color: var(--text-light);">Mark your attendance for today</p>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div class="location-info">
+                        <i class="fas fa-info-circle"></i>
+                        <span style="font-size: 0.9rem;">
+                            Must be within <?php echo $today_task_data['geofence_radius'] ?? 100; ?>m of task location for check-in/out
+                        </span>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <?php if(!$attendance_data): ?>
+                            <button class="btn btn-success" onclick="checkInOut('check_in')">
+                                <i class="fas fa-sign-in-alt"></i> Check In
+                            </button>
+                        <?php elseif(!$attendance_data['check_out_time']): ?>
+                            <button class="btn btn-warning" onclick="checkInOut('check_out')">
+                                <i class="fas fa-sign-out-alt"></i> Check Out
+                            </button>
+                        <?php else: ?>
+                            <button class="btn btn-outline" disabled style="width: 100%;">
+                                <i class="fas fa-check-circle"></i> Day Completed
+                            </button>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Leave Management Card -->
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <div class="feature-icon">
+                            <i class="fas fa-calendar-plus"></i>
+                        </div>
+                        <div>
+                            <h3 class="feature-title">Leave Status</h3>
                         </div>
                     </div>
                     
                     <?php if($leave_data): ?>
-                        <div style="background: var(--light-bg); border-radius: var(--radius-sm); padding: 20px; margin-bottom: 20px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                <span style="font-weight: 600;"><?php echo date('d M Y', strtotime($leave_data['start_date'])); ?> - <?php echo date('d M Y', strtotime($leave_data['end_date'])); ?></span>
-                                <span class="leave-indicator leave-<?php echo $leave_data['status']; ?>">
-                                    <?php echo ucfirst($leave_data['status']); ?>
-                                </span>
+                        <div style="background: var(--light-bg); padding: 20px; border-radius: var(--radius-sm); margin-bottom: 20px;">
+                            <h4 style="margin-bottom: 10px;">Pending Request</h4>
+                            <div style="display: grid; gap: 8px;">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: var(--text-light);">Leave Type:</span>
+                                    <span style="font-weight: 600;"><?php echo ucfirst($leave_data['leave_type']); ?></span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: var(--text-light);">From:</span>
+                                    <span><?php echo date('d M Y', strtotime($leave_data['start_date'])); ?></span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: var(--text-light);">To:</span>
+                                    <span><?php echo date('d M Y', strtotime($leave_data['end_date'])); ?></span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: var(--text-light);">Days:</span>
+                                    <span><?php echo $leave_data['total_days']; ?> day(s)</span>
+                                </div>
                             </div>
-                            <p style="color: var(--text-light); font-size: 0.9rem;">
-                                <?php echo htmlspecialchars(substr($leave_data['reason'], 0, 100)); ?>...
-                            </p>
+                            <div class="mt-3">
+                                <span class="task-status status-pending">Pending Approval</span>
+                            </div>
                         </div>
                     <?php endif; ?>
                     
-                    <button class="btn btn-outline" style="width: 100%;" onclick="openLeaveModal()">
-                        <i class="fas fa-plus"></i> Apply for Leave
+                    <!-- Leave History -->
+                    <?php if(count($leave_history_data) > 0): ?>
+                        <div class="leave-history">
+                            <h4 style="margin-bottom: 15px; font-size: 1rem;">Recent Leave History</h4>
+                            <?php foreach($leave_history_data as $leave): ?>
+                                <div class="leave-history-item">
+                                    <div>
+                                        <div class="leave-history-date">
+                                            <?php echo date('d M', strtotime($leave['start_date'])); ?> - 
+                                            <?php echo date('d M', strtotime($leave['end_date'])); ?>
+                                        </div>
+                                        <div class="leave-history-reason">
+                                            <?php echo htmlspecialchars(substr($leave['reason'], 0, 30)); ?>...
+                                        </div>
+                                    </div>
+                                    <span class="task-status status-<?php echo $leave['status']; ?>">
+                                        <?php echo ucfirst($leave['status']); ?>
+                                    </span>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <div style="text-align: center; padding: 20px 0; color: var(--text-light);">
+                            <i class="fas fa-calendar" style="font-size: 32px; margin-bottom: 12px;"></i>
+                            <p>No leave history</p>
+                        </div>
+                    <?php endif; ?>
+                    
+                    <button class="btn btn-outline mt-3" style="width: 100%;" onclick="openLeaveModal()">
+                        <i class="fas fa-plus"></i> Request Leave
                     </button>
+                </div>
+
+                <!-- Location Tracking Card -->
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <div class="feature-icon">
+                            <i class="fas fa-location-dot"></i>
+                        </div>
+                        <div>
+                            <h3 class="feature-title">Live Location</h3>
+                        </div>
+                    </div>
+                    
+                    <div style="text-align: center; padding: 15px 0;">
+                        <div id="locationStatus" style="margin-bottom: 20px; font-size: 0.9rem; padding: 10px; background: var(--light-bg); border-radius: var(--radius-sm);">
+                            <i class="fas fa-location-slash"></i> Location sharing off
+                        </div>
+                        
+                        <div style="display: flex; gap: 12px;">
+                            <button class="btn btn-success" onclick="startLocationSharing()" style="flex: 1;">
+                                <i class="fas fa-play"></i> Start Sharing
+                            </button>
+                            <button class="btn btn-danger" onclick="stopLocationSharing()" style="flex: 1;">
+                                <i class="fas fa-stop"></i> Stop
+                            </button>
+                        </div>
+                        
+                        <div style="margin-top: 20px; font-size: 0.85rem; color: var(--text-light);">
+                            <i class="fas fa-info-circle"></i> 
+                            When enabled, admin can see your real-time location
+                        </div>
+                        
+                        <?php if($location_data): ?>
+                        <div style="margin-top: 15px; padding: 10px; background: var(--light-bg); border-radius: var(--radius-sm);">
+                            <div style="font-size: 0.9rem;">
+                                <i class="fas fa-clock"></i> 
+                                Last update: <?php echo date('h:i A', strtotime($location_data['timestamp'])); ?>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Notifications Card -->
+                <div class="feature-card">
+                    <div class="feature-header">
+                        <div class="feature-icon">
+                            <i class="fas fa-bell"></i>
+                        </div>
+                        <div>
+                            <h3 class="feature-title">Notifications</h3>
+                        </div>
+                    </div>
+                    
+                    <?php if(count($notifications_data) > 0): ?>
+                        <div class="notifications-list">
+                            <?php foreach($notifications_data as $notification): ?>
+                                <div class="notification-item">
+                                    <div class="notification-icon">
+                                        <?php 
+                                        switch($notification['type']) {
+                                            case 'alert': echo '<i class="fas fa-exclamation-circle"></i>'; break;
+                                            case 'info': echo '<i class="fas fa-info-circle"></i>'; break;
+                                            case 'warning': echo '<i class="fas fa-exclamation-triangle"></i>'; break;
+                                            default: echo '<i class="fas fa-bell"></i>';
+                                        }
+                                        ?>
+                                    </div>
+                                    <div class="notification-content">
+                                        <div style="font-weight: 600;"><?php echo htmlspecialchars($notification['title']); ?></div>
+                                        <div style="font-size: 0.9rem; color: var(--text-light);">
+                                            <?php echo htmlspecialchars(substr($notification['message'], 0, 80)); ?>...
+                                        </div>
+                                        <div class="notification-time">
+                                            <?php echo date('h:i A', strtotime($notification['created_at'])); ?>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <div style="text-align: center; padding: 20px 0; color: var(--text-light);">
+                            <i class="fas fa-bell-slash" style="font-size: 32px; margin-bottom: 12px;"></i>
+                            <p>No new notifications</p>
+                        </div>
+                    <?php endif; ?>
                 </div>
 
                 <!-- Reports Card -->
@@ -1138,21 +1361,24 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                             <i class="fas fa-chart-bar"></i>
                         </div>
                         <div>
-                            <h3 class="feature-title">Daily Reports</h3>
+                            <h3 class="feature-title">Recent Reports</h3>
                         </div>
                     </div>
                     
                     <?php if(count($reports_data) > 0): ?>
-                        <div class="reports-list">
+                        <div class="notifications-list">
                             <?php foreach($reports_data as $report): ?>
-                                <div class="report-item">
-                                    <div class="report-icon">
+                                <div class="notification-item">
+                                    <div class="notification-icon" style="background: var(--secondary);">
                                         <i class="fas fa-file-alt"></i>
                                     </div>
-                                    <div class="report-content">
-                                        <div style="font-weight: 600;"><?php echo htmlspecialchars($report['title'] ?? 'Untitled Report'); ?></div>
-                                        <div class="report-date">
-                                            <?php echo date('d M Y, h:i A', strtotime($report['created_at'] ?? $report['date'] ?? 'now')); ?>
+                                    <div class="notification-content">
+                                        <div style="font-weight: 600;"><?php echo htmlspecialchars($report['task_title'] ?? 'Report'); ?></div>
+                                        <div style="font-size: 0.9rem; color: var(--text-light);">
+                                            <?php echo htmlspecialchars(substr($report['report_text'], 0, 80)); ?>...
+                                        </div>
+                                        <div class="notification-time">
+                                            <?php echo date('d M Y, h:i A', strtotime($report['submitted_at'])); ?>
                                         </div>
                                     </div>
                                 </div>
@@ -1167,44 +1393,6 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                     
                     <button class="btn btn-outline mt-3" style="width: 100%;" onclick="openReportsModal()">
                         <i class="fas fa-eye"></i> View All Reports
-                    </button>
-                    <!-- Add Report Button to Task Card -->
-<?php if($today_task_data): ?>
-    <div class="task-actions mt-3" style="display: flex; gap: 10px;">
-        <button class="btn btn-primary" onclick="openTaskModal()">
-            <i class="fas fa-eye"></i> View Details
-        </button>
-        <button class="btn btn-success" onclick="openReportModal()">
-            <i class="fas fa-file-upload"></i> Submit Report
-        </button>
-    </div>
-<?php endif; ?>
-                </div>
-
-                <!-- Profile Card -->
-                <div class="feature-card">
-                    <div class="feature-header">
-                        <div class="feature-icon">
-                            <i class="fas fa-user-circle"></i>
-                        </div>
-                        <div>
-                            <h3 class="feature-title">My Profile</h3>
-                        </div>
-                    </div>
-                    
-                    <div class="profile-info">
-                        <div class="profile-avatar">
-                            <i class="fas fa-user"></i>
-                        </div>
-                        <div class="profile-details">
-                            <h4><?php echo htmlspecialchars($name); ?></h4>
-                            <p><?php echo htmlspecialchars($email); ?></p>
-                            <p style="font-size: 0.9rem;">Volunteer ID: <?php echo $volunteer_id; ?></p>
-                        </div>
-                    </div>
-                    
-                    <button class="btn btn-outline" style="width: 100%;" onclick="openProfileModal()">
-                        <i class="fas fa-edit"></i> Edit Profile
                     </button>
                 </div>
 
@@ -1264,6 +1452,18 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                     
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                         <div class="form-group">
+                            <label class="form-label">Category</label>
+                            <input type="text" class="form-control" value="<?php echo htmlspecialchars($today_task_data['task_category']); ?>" readonly>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Priority</label>
+                            <input type="text" class="form-control" value="<?php echo htmlspecialchars(ucfirst($today_task_data['task_priority'])); ?>" readonly>
+                        </div>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div class="form-group">
                             <label class="form-label">Assigned By</label>
                             <input type="text" class="form-control" value="<?php echo htmlspecialchars($today_task_data['assigned_by']); ?>" readonly>
                         </div>
@@ -1288,9 +1488,9 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                         </div>
                     </div>
                     
-                    <?php if($today_task_data['location_name']): ?>
+                    <?php if($today_task_data['latitude'] && $today_task_data['longitude']): ?>
                         <div class="mt-3">
-                            <a href="https://maps.google.com/?q=<?php echo urlencode($today_task_data['location_name']); ?>" 
+                            <a href="https://www.google.com/maps/dir/?api=1&destination=<?php echo $today_task_data['latitude']; ?>,<?php echo $today_task_data['longitude']; ?>" 
                                target="_blank" class="btn btn-outline" style="width: 100%;">
                                 <i class="fas fa-map-marker-alt"></i> Open in Google Maps
                             </a>
@@ -1306,41 +1506,129 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
         </div>
     </div>
 
+    <!-- Report Submission Modal -->
+    <div class="modal" id="reportModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-file-upload"></i> Submit Task Report</h2>
+                <button class="close-modal" onclick="closeReportModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="reportForm" enctype="multipart/form-data">
+                    <input type="hidden" name="task_id" value="<?php echo $today_task_data['id'] ?? ''; ?>">
+                    
+                    <div class="form-group">
+                        <label class="form-label">Report Description</label>
+                        <textarea name="report_text" class="form-control" rows="4" 
+                                  placeholder="Describe what you did, any challenges faced, results achieved..." required></textarea>
+                    </div>
+                    
+                    <div id="reportMap" style="height: 200px; margin: 15px 0; display: none;"></div>
+                    <button type="button" class="btn btn-outline mb-3" onclick="addLocationToReport()">
+                        <i class="fas fa-location-dot"></i> Add Current Location
+                    </button>
+                    <input type="hidden" name="report_latitude" id="reportLatitude">
+                    <input type="hidden" name="report_longitude" id="reportLongitude">
+                    
+                    <div class="form-group">
+                        <label class="form-label">Upload Images (Proof)</label>
+                        <input type="file" name="images[]" class="form-control" multiple accept="image/*">
+                        <small class="text-muted">Upload before/after photos (max 5 images, 2MB each)</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Upload Documents (PDF/Docs)</label>
+                        <input type="file" name="documents[]" class="form-control" multiple accept=".pdf,.doc,.docx">
+                        <small class="text-muted">Upload reports, receipts, forms (max 3 files, 5MB each)</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Upload Videos</label>
+                        <input type="file" name="videos[]" class="form-control" multiple accept="video/*">
+                        <small class="text-muted">Short video evidence (max 2 videos, 10MB each)</small>
+                    </div>
+                    
+                    <div style="display: flex; gap: 12px; margin-top: 24px;">
+                        <button type="submit" class="btn btn-primary" style="flex: 1;">
+                            <i class="fas fa-paper-plane"></i> Submit Report
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="closeReportModal()" style="flex: 1;">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Leave Request Modal -->
     <div class="modal" id="leaveModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2><i class="fas fa-calendar-plus"></i> Apply for Leave</h2>
+                <h2><i class="fas fa-calendar-plus"></i> Leave Request</h2>
                 <button class="close-modal" onclick="closeLeaveModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <form id="leaveForm" action="volunteer_leave.php" method="POST">
+                <form id="leaveForm">
+                    <input type="hidden" name="volunteer_id" value="<?php echo $volunteer_id; ?>">
+                    
                     <div class="form-group">
                         <label class="form-label">Leave Type</label>
-                        <select name="leave_type" class="form-control" required>
+                        <select name="leave_type" class="form-select" required>
                             <option value="">Select Leave Type</option>
                             <option value="sick">Sick Leave</option>
                             <option value="casual">Casual Leave</option>
-                            <option value="emergency">Emergency</option>
+                            <option value="emergency">Emergency Leave</option>
+                            <option value="personal">Personal Leave</option>
+                            <option value="vacation">Vacation</option>
                             <option value="other">Other</option>
                         </select>
                     </div>
                     
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                        <div class="form-group">
-                            <label class="form-label">Start Date</label>
-                            <input type="date" name="start_date" class="form-control" required min="<?php echo date('Y-m-d'); ?>">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label">End Date</label>
-                            <input type="date" name="end_date" class="form-control" required min="<?php echo date('Y-m-d'); ?>">
-                        </div>
+                    <div class="form-group">
+                        <label class="form-label">Start Date</label>
+                        <input type="date" name="start_date" class="form-control" id="startDate" required>
                     </div>
                     
                     <div class="form-group">
-                        <label class="form-label">Reason</label>
-                        <textarea name="reason" class="form-control" rows="4" required placeholder="Please provide a reason for your leave"></textarea>
+                        <label class="form-label">End Date</label>
+                        <input type="date" name="end_date" class="form-control" id="endDate" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Total Days</label>
+                        <input type="text" name="total_days" class="form-control" id="totalDays" readonly>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Reason for Leave</label>
+                        <textarea name="reason" class="form-control" rows="4" 
+                                  placeholder="Please provide a detailed reason for your leave request..." required></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Contact Number During Leave</label>
+                        <input type="tel" name="contact_number" class="form-control" 
+                               placeholder="Enter contact number where you can be reached">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Emergency Contact</label>
+                        <input type="text" name="emergency_contact" class="form-control" 
+                               placeholder="Name and number of emergency contact">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Upload Supporting Document (Optional)</label>
+                        <input type="file" name="document" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                        <small class="text-muted">Upload medical certificate or other supporting documents</small>
+                    </div>
+                    
+                    <div style="background: var(--light-bg); padding: 15px; border-radius: var(--radius-sm); margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-info-circle" style="color: var(--primary);"></i>
+                            <span style="font-size: 0.9rem;">Your leave request will be reviewed by the coordinator. You'll be notified of the decision.</span>
+                        </div>
                     </div>
                     
                     <div style="display: flex; gap: 12px; margin-top: 24px;">
@@ -1356,53 +1644,52 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
         </div>
     </div>
 
-    <!-- Profile Modal -->
-    <div class="modal" id="profileModal">
+    <!-- Directions Modal -->
+    <div class="modal" id="directionsModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2><i class="fas fa-user-edit"></i> Edit Profile</h2>
-                <button class="close-modal" onclick="closeProfileModal()">&times;</button>
+                <h2><i class="fas fa-directions"></i> Get Directions</h2>
+                <button class="close-modal" onclick="closeDirectionsModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <form id="profileForm" action="update_profile.php" method="POST">
-                    <div class="form-group">
-                        <label class="form-label">Full Name</label>
-                        <input type="text" name="full_name" class="form-control" value="<?php echo htmlspecialchars($name); ?>" required>
+                <?php if($today_task_data && $today_task_data['latitude'] && $today_task_data['longitude']): ?>
+                    <div style="text-align: center; padding: 20px;">
+                        <p>Open directions to your task location in your preferred maps app:</p>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px;">
+                            <a href="https://www.google.com/maps/dir/?api=1&destination=<?php echo $today_task_data['latitude']; ?>,<?php echo $today_task_data['longitude']; ?>" 
+                               target="_blank" class="btn btn-outline">
+                                <i class="fab fa-google"></i> Google Maps
+                            </a>
+                            
+                            <a href="https://maps.apple.com/?daddr=<?php echo $today_task_data['latitude']; ?>,<?php echo $today_task_data['longitude']; ?>" 
+                               target="_blank" class="btn btn-outline">
+                                <i class="fab fa-apple"></i> Apple Maps
+                            </a>
+                        </div>
+                        
+                        <div style="margin-top: 20px; padding: 15px; background: var(--light-bg); border-radius: var(--radius-sm);">
+                            <div style="font-weight: 600;">Task Location:</div>
+                            <div><?php echo htmlspecialchars($today_task_data['location_name']); ?></div>
+                            <div style="font-size: 0.9rem; color: var(--text-light); margin-top: 5px;">
+                                Coordinates: <?php echo $today_task_data['latitude']; ?>, <?php echo $today_task_data['longitude']; ?>
+                            </div>
+                        </div>
                     </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">Email Address</label>
-                        <input type="email" name="email" class="form-control" value="<?php echo htmlspecialchars($email); ?>" required>
+                <?php else: ?>
+                    <div style="text-align: center; padding: 40px; color: var(--text-light);">
+                        <i class="fas fa-map" style="font-size: 48px; margin-bottom: 16px;"></i>
+                        <p>No location data available for this task</p>
                     </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">Phone Number</label>
-                        <input type="tel" name="phone" class="form-control" placeholder="Enter your phone number">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">Emergency Contact</label>
-                        <input type="tel" name="emergency_contact" class="form-control" placeholder="Emergency contact number">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">Address</label>
-                        <textarea name="address" class="form-control" rows="3" placeholder="Your current address"></textarea>
-                    </div>
-                    
-                    <div style="display: flex; gap: 12px; margin-top: 24px;">
-                        <button type="submit" class="btn btn-primary" style="flex: 1;">
-                            <i class="fas fa-save"></i> Save Changes
-                        </button>
-                        <button type="button" class="btn btn-outline" onclick="closeProfileModal()" style="flex: 1;">
-                            <i class="fas fa-times"></i> Cancel
-                        </button>
-                    </div>
-                </form>
+                <?php endif; ?>
             </div>
         </div>
     </div>
 
+    <!-- JavaScript Libraries -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    
     <script>
         // Modal Functions
         function openTaskModal() {
@@ -1413,20 +1700,31 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             document.getElementById('taskModal').classList.remove('active');
         }
         
+        function openReportModal() {
+            document.getElementById('reportModal').classList.add('active');
+        }
+        
+        function closeReportModal() {
+            document.getElementById('reportModal').classList.remove('active');
+        }
+        
         function openLeaveModal() {
             document.getElementById('leaveModal').classList.add('active');
+            // Reset form
+            document.getElementById('leaveForm').reset();
+            document.getElementById('totalDays').value = '';
         }
         
         function closeLeaveModal() {
             document.getElementById('leaveModal').classList.remove('active');
         }
         
-        function openProfileModal() {
-            document.getElementById('profileModal').classList.add('active');
+        function openDirectionsModal() {
+            document.getElementById('directionsModal').classList.add('active');
         }
         
-        function closeProfileModal() {
-            document.getElementById('profileModal').classList.remove('active');
+        function closeDirectionsModal() {
+            document.getElementById('directionsModal').classList.remove('active');
         }
         
         function openReportsModal() {
@@ -1452,47 +1750,318 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
             }
         });
         
-        // Attendance function
-        function markAttendance() {
+        // Check In/Out Function
+        let checkInOutMap;
+        
+        function checkInOut(action) {
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     function(position) {
-                        const lat = position.coords.latitude;
-                        const lng = position.coords.longitude;
+                        const taskId = <?php echo $today_task_data['id'] ?? 'null'; ?>;
+                        const taskLat = <?php echo $today_task_data['latitude'] ?? 'null'; ?>;
+                        const taskLng = <?php echo $today_task_data['longitude'] ?? 'null'; ?>;
+                        const geofenceRadius = <?php echo $today_task_data['geofence_radius'] ?? 100; ?>;
                         
-                        // Send location to server
-                        fetch('mark_attendance.php', {
+                        // Calculate distance if task location exists
+                        let distance = null;
+                        if (taskLat && taskLng) {
+                            distance = calculateDistance(
+                                position.coords.latitude,
+                                position.coords.longitude,
+                                taskLat,
+                                taskLng
+                            );
+                            
+                            if (distance > geofenceRadius) {
+                                alert(`You are ${Math.round(distance)}m away from task location. 
+                                    You must be within ${geofenceRadius}m to check ${action === 'check_in' ? 'in' : 'out'}.`);
+                                return;
+                            }
+                        }
+                        
+                        // Send check-in/out request
+                        fetch('check_in_out.php', {
                             method: 'POST',
                             headers: {
-                                'Content-Type': 'application/json',
+                                'Content-Type': 'application/x-www-form-urlencoded',
                             },
-                            body: JSON.stringify({
-                                latitude: lat,
-                                longitude: lng,
-                                volunteer_id: <?php echo $volunteer_id; ?>
+                            body: new URLSearchParams({
+                                action: action,
+                                latitude: position.coords.latitude,
+                                longitude: position.coords.longitude,
+                                task_id: taskId
                             })
                         })
                         .then(response => response.json())
                         .then(data => {
                             if (data.success) {
-                                alert('Attendance marked successfully!');
+                                alert(action === 'check_in' ? 
+                                    'Checked in successfully!' : 
+                                    'Checked out successfully!');
                                 location.reload();
                             } else {
                                 alert('Error: ' + data.message);
                             }
                         })
                         .catch(error => {
-                            alert('Error marking attendance. Please try again.');
+                            alert('Error: ' + error);
                         });
                     },
                     function(error) {
-                        alert('Please enable location services to mark attendance.');
+                        let errorMessage = 'Please enable location services to check ' + 
+                                          (action === 'check_in' ? 'in' : 'out') + '. ';
+                        switch(error.code) {
+                            case error.PERMISSION_DENIED:
+                                errorMessage += 'Location permission denied.';
+                                break;
+                            case error.POSITION_UNAVAILABLE:
+                                errorMessage += 'Location information unavailable.';
+                                break;
+                            case error.TIMEOUT:
+                                errorMessage += 'Location request timed out.';
+                                break;
+                        }
+                        alert(errorMessage);
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
                     }
                 );
             } else {
                 alert('Geolocation is not supported by your browser.');
             }
         }
+        
+        // Calculate distance between two coordinates (Haversine formula)
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; // Earth's radius in meters
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lon2 - lon1) * Math.PI / 180;
+            
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                      Math.cos(φ1) * Math.cos(φ2) *
+                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            
+            return R * c; // Distance in meters
+        }
+        
+        // Location Tracking for Admin
+        let locationInterval;
+        let isLocationSharing = false;
+        
+        function startLocationSharing() {
+            if (!navigator.geolocation) {
+                alert('Location sharing not supported by your browser');
+                return;
+            }
+            
+            if (isLocationSharing) {
+                stopLocationSharing();
+                return;
+            }
+            
+            // Ask for permission
+            if (confirm('Share your live location with admin for tracking? You can stop anytime.')) {
+                isLocationSharing = true;
+                document.getElementById('locationStatus').innerHTML = 
+                    '<span style="color: var(--secondary);"><i class="fas fa-location-dot"></i> Live Tracking ON</span>';
+                
+                // Send location every 30 seconds
+                locationInterval = setInterval(updateLocation, 30000);
+                
+                // Send immediately
+                updateLocation();
+                
+                alert('Location sharing started. Admin can now track your location.');
+            }
+        }
+        
+        function updateLocation() {
+            if (!isLocationSharing) return;
+            
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    const data = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        accuracy: position.coords.accuracy,
+                        volunteer_id: <?php echo $volunteer_id; ?>
+                    };
+                    
+                    fetch('update_location.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(data)
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            console.log('Location updated:', data.timestamp);
+                        }
+                    });
+                },
+                function(error) {
+                    console.error('Error getting location:', error);
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            );
+        }
+        
+        function stopLocationSharing() {
+            if (locationInterval) {
+                clearInterval(locationInterval);
+                locationInterval = null;
+            }
+            isLocationSharing = false;
+            document.getElementById('locationStatus').innerHTML = 
+                '<span style="color: var(--danger);"><i class="fas fa-location-slash"></i> Tracking OFF</span>';
+            alert('Location sharing stopped.');
+        }
+        
+        // Report form with location
+        function addLocationToReport() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    function(position) {
+                        document.getElementById('reportLatitude').value = position.coords.latitude;
+                        document.getElementById('reportLongitude').value = position.coords.longitude;
+                        
+                        // Show map
+                        const mapDiv = document.getElementById('reportMap');
+                        mapDiv.style.display = 'block';
+                        
+                        if (!window.reportMap) {
+                            window.reportMap = L.map('reportMap').setView([position.coords.latitude, position.coords.longitude], 15);
+                            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(window.reportMap);
+                        } else {
+                            window.reportMap.setView([position.coords.latitude, position.coords.longitude], 15);
+                        }
+                        
+                        // Clear existing markers
+                        window.reportMap.eachLayer(function(layer) {
+                            if (layer instanceof L.Marker) {
+                                window.reportMap.removeLayer(layer);
+                            }
+                        });
+                        
+                        // Add marker
+                        L.marker([position.coords.latitude, position.coords.longitude], {
+                            icon: L.divIcon({
+                                html: '<i class="fas fa-map-marker-alt" style="color: var(--primary); font-size: 24px;"></i>'
+                            })
+                        }).addTo(window.reportMap)
+                          .bindPopup('Report Location')
+                          .openPopup();
+                    },
+                    function(error) {
+                        alert('Unable to get your location for the report.');
+                    }
+                );
+            }
+        }
+        
+        // Submit Report Form
+        document.getElementById('reportForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            
+            fetch('submit_report.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Report submitted successfully!');
+                    closeReportModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Error submitting report: ' + error);
+            });
+        });
+        
+        // Leave Request Form
+        document.getElementById('leaveForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            
+            // Validate dates
+            const startDate = new Date(document.getElementById('startDate').value);
+            const endDate = new Date(document.getElementById('endDate').value);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            if (startDate < today) {
+                alert('Start date cannot be in the past.');
+                return;
+            }
+            
+            if (endDate < startDate) {
+                alert('End date cannot be before start date.');
+                return;
+            }
+            
+            fetch('submit_leave_request.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Leave request submitted successfully!');
+                    closeLeaveModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Error submitting leave request: ' + error);
+            });
+        });
+        
+        // Calculate days between dates
+        function calculateDays() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (startDate && endDate) {
+                const start = new Date(startDate);
+                const end = new Date(endDate);
+                
+                if (end < start) {
+                    document.getElementById('totalDays').value = 'Invalid dates';
+                    return;
+                }
+                
+                // Calculate difference in days
+                const timeDiff = end.getTime() - start.getTime();
+                const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1; // +1 to include both start and end days
+                
+                document.getElementById('totalDays').value = daysDiff + ' day(s)';
+            }
+        }
+        
+        // Add event listeners for date calculations
+        document.getElementById('startDate').addEventListener('change', calculateDays);
+        document.getElementById('endDate').addEventListener('change', calculateDays);
         
         // Emergency Alert function
         function sendEmergencyAlert() {
@@ -1542,7 +2111,19 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                         }
                     );
                 } else {
-                    alert('Emergency alert sent! Your coordinator has been notified.');
+                    fetch('send_emergency_alert.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            volunteer_id: <?php echo $volunteer_id; ?>,
+                            volunteer_name: "<?php echo addslashes($name); ?>"
+                        })
+                    })
+                    .then(() => {
+                        alert('Emergency alert sent! Your coordinator has been notified.');
+                    });
                 }
             }
         }
@@ -1575,268 +2156,54 @@ if (isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
                 }
             }
         }
-        // Check In/Out Function
-function checkInOut(action) {
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            function(position) {
-                const taskId = <?php echo $today_task_data['id'] ?? 'null'; ?>;
-                
-                fetch('check_in_out.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: new URLSearchParams({
-                        action: action,
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                        task_id: taskId
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert(action === 'check_in' ? 
-                            'Checked in successfully!' : 
-                            'Checked out successfully!');
-                        location.reload();
-                    } else {
-                        alert('Error: ' + data.message + 
-                              (data.distance ? ' (Distance: ' + data.distance + 'm)' : ''));
-                    }
-                })
-                .catch(error => {
-                    alert('Error: ' + error);
-                });
-            },
-            function(error) {
-                let errorMessage = 'Please enable location services to check ' + 
-                                  (action === 'check_in' ? 'in' : 'out') + '. ';
-                switch(error.code) {
-                    case error.PERMISSION_DENIED:
-                        errorMessage += 'Location permission denied.';
-                        break;
-                    case error.POSITION_UNAVAILABLE:
-                        errorMessage += 'Location information unavailable.';
-                        break;
-                    case error.TIMEOUT:
-                        errorMessage += 'Location request timed out.';
-                        break;
-                }
-                alert(errorMessage);
-            },
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 0
-            }
-        );
-    } else {
-        alert('Geolocation is not supported by your browser.');
-    }
-}
-
-// Report Modal Functions
-function openReportModal() {
-    document.getElementById('reportModal').classList.add('active');
-}
-
-function closeReportModal() {
-    document.getElementById('reportModal').classList.remove('active');
-}
-
-// Submit Report Form
-document.getElementById('reportForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    const formData = new FormData(this);
-    
-    fetch('submit_report.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Report submitted successfully!');
-            closeReportModal();
-            location.reload();
-        } else {
-            alert('Error: ' + data.message);
-        }
-    })
-    .catch(error => {
-        alert('Error submitting report: ' + error);
-    });
-});
-
-// Rank Modal Functions
-function openRankModal() {
-    document.getElementById('rankModal').classList.add('active');
-}
-
-function closeRankModal() {
-    document.getElementById('rankModal').classList.remove('active');
-}
-
-// Add Rank Button to Dashboard
-// Add this button somewhere in your dashboard HTML:
-// <button class="btn btn-warning" onclick="openRankModal()">
-//     <i class="fas fa-trophy"></i> My Rank
-// </button>
-
-// View task location on OpenStreetMap
-function viewTaskLocation(lat, lng) {
-    window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}&zoom=15`, '_blank');
-}
-
-// Update markAttendance function to use checkInOut
-// Replace the existing markAttendance function with:
-function markAttendance() {
-    const hasCheckedIn = <?php echo isset($attendance_data) ? 'true' : 'false'; ?>;
-    const hasCheckedOut = <?php echo isset($attendance_data['check_out_time']) ? 'true' : 'false'; ?>;
-    
-    if (!hasCheckedIn) {
-        checkInOut('check_in');
-    } else if (!hasCheckedOut) {
-        checkInOut('check_out');
-    } else {
-        alert('You have already completed attendance for today.');
-    }
-}
-        // Initialize today's date for leave form
+        
+        // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
-            const today = new Date().toISOString().split('T')[0];
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            const tomorrowStr = tomorrow.toISOString().split('T')[0];
+            console.log('Volunteer dashboard loaded successfully');
             
-            const startDateInput = document.querySelector('input[name="start_date"]');
-            const endDateInput = document.querySelector('input[name="end_date"]');
+            // Initialize date pickers
+            flatpickr("#startDate", {
+                minDate: "today",
+                dateFormat: "Y-m-d",
+                onChange: function(selectedDates, dateStr, instance) {
+                    if (dateStr) {
+                        const endDatePicker = document.querySelector("#endDate")._flatpickr;
+                        endDatePicker.set('minDate', dateStr);
+                    }
+                }
+            });
             
-            if (startDateInput) {
-                startDateInput.min = today;
-                startDateInput.value = today;
-            }
+            flatpickr("#endDate", {
+                minDate: "today",
+                dateFormat: "Y-m-d"
+            });
             
-            if (endDateInput) {
-                endDateInput.min = tomorrowStr;
-                endDateInput.value = tomorrowStr;
+            // Start location sharing automatically if checked in but not checked out
+            const isCheckedIn = <?php echo isset($attendance_data) && !isset($attendance_data['check_out_time']) ? 'true' : 'false'; ?>;
+            if (isCheckedIn) {
+                setTimeout(() => {
+                    if (confirm('Start sharing your location with admin while working?')) {
+                        startLocationSharing();
+                    }
+                }, 2000);
             }
         });
-
-        
     </script>
-    <!-- Report Submission Modal -->
-<div class="modal" id="reportModal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h2><i class="fas fa-file-upload"></i> Submit Task Report</h2>
-            <button class="close-modal" onclick="closeReportModal()">&times;</button>
-        </div>
-        <div class="modal-body">
-            <form id="reportForm" enctype="multipart/form-data">
-                <input type="hidden" name="task_id" value="<?php echo $today_task_data['id'] ?? ''; ?>">
-                
-                <div class="form-group">
-                    <label class="form-label">Report Description</label>
-                    <textarea name="report_text" class="form-control" rows="4" 
-                              placeholder="Describe what you did, any challenges faced, results achieved..." required></textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Upload Images (Proof)</label>
-                    <input type="file" name="images[]" class="form-control" multiple accept="image/*">
-                    <small class="text-muted">Upload before/after photos (max 5 images, 2MB each)</small>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Upload Documents (PDF/Docs)</label>
-                    <input type="file" name="documents[]" class="form-control" multiple accept=".pdf,.doc,.docx">
-                    <small class="text-muted">Upload reports, receipts, forms (max 3 files, 5MB each)</small>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Upload Videos</label>
-                    <input type="file" name="videos[]" class="form-control" multiple accept="video/*">
-                    <small class="text-muted">Short video evidence (max 2 videos, 10MB each)</small>
-                </div>
-                
-                <div style="display: flex; gap: 12px; margin-top: 24px;">
-                    <button type="submit" class="btn btn-primary" style="flex: 1;">
-                        <i class="fas fa-paper-plane"></i> Submit Report
-                    </button>
-                    <button type="button" class="btn btn-outline" onclick="closeReportModal()" style="flex: 1;">
-                        <i class="fas fa-times"></i> Cancel
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- My Rank Modal -->
-<div class="modal" id="rankModal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h2><i class="fas fa-trophy"></i> My Ranking</h2>
-            <button class="close-modal" onclick="closeRankModal()">&times;</button>
-        </div>
-        <div class="modal-body">
-            <?php
-            // Get volunteer ranking
-            $rank_sql = "SELECT v.*, 
-                        (SELECT COUNT(*) FROM volunteers v2 WHERE v2.total_points > v.total_points) + 1 as rank_position
-                        FROM volunteers v 
-                        WHERE v.id = ?";
-            $rank_stmt = mysqli_prepare($conn, $rank_sql);
-            mysqli_stmt_bind_param($rank_stmt, "i", $volunteer_id);
-            mysqli_stmt_execute($rank_stmt);
-            $rank_data = mysqli_fetch_assoc(mysqli_stmt_get_result($rank_stmt));
-            ?>
-            
-            <div style="text-align: center; padding: 20px;">
-                <div class="rank-display" style="font-size: 4rem; color: var(--warning); margin-bottom: 20px;">
-                    #<?php echo $rank_data['rank_position'] ?? 'N/A'; ?>
-                </div>
-                
-                <div style="background: var(--light-bg); padding: 20px; border-radius: var(--radius-sm);">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; text-align: left;">
-                        <div>
-                            <h4>Points</h4>
-                            <div style="font-size: 2rem; color: var(--primary); font-weight: 700;">
-                                <?php echo $rank_data['total_points'] ?? 0; ?>
-                            </div>
-                            <small>Total Points Earned</small>
-                        </div>
-                        
-                        <div>
-                            <h4>Tasks Completed</h4>
-                            <div style="font-size: 2rem; color: var(--secondary); font-weight: 700;">
-                                <?php echo $rank_data['tasks_completed'] ?? 0; ?>
-                            </div>
-                            <small>Successful Tasks</small>
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="margin-top: 30px;">
-                    <h4>How Points Work:</h4>
-                    <ul style="text-align: left; color: var(--text-light);">
-                        <li>✓ Task completion: 10 points</li>
-                        <li>✓ On-time submission: 2 bonus points</li>
-                        <li>✓ Quality work (admin rated): 3-5 bonus points</li>
-                        <li>✓ Emergency response: 15 points</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
 </body>
 </html>
 
 <?php 
+// Close all statements
+if(isset($today_stmt)) mysqli_stmt_close($today_stmt);
+if(isset($attendance_stmt)) mysqli_stmt_close($attendance_stmt);
+if(isset($leave_stmt)) mysqli_stmt_close($leave_stmt);
+if(isset($reports_stmt)) mysqli_stmt_close($reports_stmt);
+if(isset($stats_stmt)) mysqli_stmt_close($stats_stmt);
+if(isset($rank_stmt)) mysqli_stmt_close($rank_stmt);
+if(isset($notifications_stmt)) mysqli_stmt_close($notifications_stmt);
+if(isset($location_stmt)) mysqli_stmt_close($location_stmt);
+if(isset($leave_history_stmt)) mysqli_stmt_close($leave_history_stmt);
+
+// Close connection
 mysqli_close($conn); 
 ?>
