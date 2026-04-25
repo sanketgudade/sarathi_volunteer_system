@@ -7,8 +7,8 @@ if (session_status() == PHP_SESSION_NONE) {
 // Database configuration
 define('DB_HOST', 'localhost');
 define('DB_USER', 'root');
-define('DB_PASS', 'rajkumar@123');
-define('DB_NAME', 'sarathi_volunteer_db');
+define('DB_PASS', '');
+define('DB_NAME', 'YOUR DATABASE NAME');
 
 // File upload configuration
 define('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
